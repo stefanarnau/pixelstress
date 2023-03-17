@@ -10,15 +10,26 @@ Created on Mon Mar  6 16:27:35 2023
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Number of ids to create files for
+ids = range(10)
 
-
-
-# Define end point
-for end_point in [0.1, 1]:
+# Iterate participants
+for subject_id in ids:
     
-    # Define outcome
-    for outcome_factor in [-1, 1]:
+    # Define block condition pattern (fixed for now)
+    outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
+    the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
     
+    # Iterate blocks
+    for block_nr in range(8):
+        
+        # Get relevant outcome factor
+        outcome_factor = {"good":1,"bad":-1}[outcomes[block_nr]]
+        
+        # Set final value
+        end_point = {"easy": np.random.uniform(0.8, 1.3, (1,)),
+                     "close":np.random.uniform(0.05, 0.15, (1,))}[the_path[block_nr]]
+        
         # Get performance scores
         seq_scores = np.random.uniform(-1, 1, (30,)) * outcome_factor
         
@@ -56,7 +67,7 @@ for end_point in [0.1, 1]:
 
         a = np.stack((feedbacks, pixel_proportions_sorted)).T
 
-
-plt.plot(feedbacks_non_scaled)
-plt.hlines(0, 0, 32)
-
+    
+    plt.plot(feedbacks_non_scaled)
+    plt.hlines(0, 0, 32)
+    
