@@ -188,7 +188,7 @@ for subject_id in ids:
 
     # Save subject file
     fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}.csv")
-    np.savetxt(fn, all_the_lines, delimiter="\t")
+    np.savetxt(fn, all_the_lines, delimiter="\t", fmt='%f')
     
 
     # Columns in file
