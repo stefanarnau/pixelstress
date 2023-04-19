@@ -26,6 +26,12 @@ for subject_id in ids:
     # Define block condition pattern (fixed for now)
     outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
     the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
+    
+    # Get correct response for color 1
+    if np.mod(subject_id, 2) == 1:
+        correct_key_color_1 = 1
+    else:
+        correct_key_color_1 = 2
 
     # Iterate blocks
     for block_nr in range(8):
@@ -53,6 +59,8 @@ for subject_id in ids:
                     block_nr + 1,
                     outcome_factor,
                     outcome_wiggleroom,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -115,12 +123,27 @@ for subject_id in ids:
                         0,
                         0,
                         0,
+                        0,
+                        0,
                     ]
                 )
             )
 
             # Loop trials
             for trial_nr in range(pixel_values.shape[1]):
+                
+                # Get color for trial difficulty value
+                color_difficulty = np.random.randint(1,3,1)[0]
+                
+                # Determine correct response based on key mapping and dominant color
+                if (pixel_values[sequence_nr, trial_nr] < 0.5) & (color_difficulty == 1):
+                    correct_key = 2
+                elif (pixel_values[sequence_nr, trial_nr] < 0.5) & (color_difficulty == 2):
+                    correct_key = 1
+                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (color_difficulty == 1):
+                    correct_key = 1
+                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (color_difficulty == 2):
+                    correct_key = 2
 
                 # Line for trials
                 all_the_lines.append(
@@ -137,6 +160,8 @@ for subject_id in ids:
                             0,
                             trial_nr + 1,
                             pixel_values[sequence_nr, trial_nr],
+                            color_difficulty,
+                            correct_key,
                         ]
                     )
                 )
@@ -156,6 +181,8 @@ for subject_id in ids:
                         feedbacks_scaled[sequence_nr, 0],
                         0,
                         0,
+                        0,
+                        0,
                     ]
                 )
             )
@@ -169,6 +196,8 @@ for subject_id in ids:
                     block_nr + 1,
                     outcome_factor,
                     outcome_wiggleroom,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -203,3 +232,5 @@ for subject_id in ids:
     # 09: sequence_feedback_scaled (accumulated)
     # 10: trial_nr
     # 11: trial_difficulty
+    # 12: color (1 = color 1, 2 = color 2)
+    # 13: Correct response (1 = left, 2 = right)
