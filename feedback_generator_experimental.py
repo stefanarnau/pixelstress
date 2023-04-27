@@ -10,6 +10,7 @@ Created on Mon Mar  6 16:27:35 2023
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import pandas as pd
 
 # Path out
 path_out = "/home/plkn/repos/pixelstress/control_files/"
@@ -26,12 +27,12 @@ for subject_id in ids:
     # Define block condition pattern (fixed for now)
     outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
     the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
-    
+
     # Get correct response for color 1
     if np.mod(subject_id, 2) == 1:
-        correct_key_color_1 = 1
+        correct_idx = 0  # Odd number participants
     else:
-        correct_key_color_1 = 2
+        correct_idx = 1  # Even number participants
 
     # Iterate blocks
     for block_nr in range(8):
@@ -54,6 +55,9 @@ for subject_id in ids:
         all_the_lines.append(
             np.array(
                 [
+                    1,
+                    "",
+                    "gridBlockStartProc",
                     subject_id + 1,
                     1,
                     block_nr + 1,
@@ -112,6 +116,9 @@ for subject_id in ids:
             all_the_lines.append(
                 np.array(
                     [
+                        1,
+                        "",
+                        "gridSequenceStartProc",
                         subject_id + 1,
                         3,
                         block_nr + 1,
@@ -131,24 +138,35 @@ for subject_id in ids:
 
             # Loop trials
             for trial_nr in range(pixel_values.shape[1]):
-                
+
                 # Get color for trial difficulty value
-                color_difficulty = np.random.randint(1,3,1)[0]
-                
+                color_difficulty = np.random.randint(1, 3, 1)[0]
+
                 # Determine correct response based on key mapping and dominant color
-                if (pixel_values[sequence_nr, trial_nr] < 0.5) & (color_difficulty == 1):
-                    correct_key = 2
-                elif (pixel_values[sequence_nr, trial_nr] < 0.5) & (color_difficulty == 2):
-                    correct_key = 1
-                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (color_difficulty == 1):
-                    correct_key = 1
-                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (color_difficulty == 2):
-                    correct_key = 2
+                if (pixel_values[sequence_nr, trial_nr] < 0.5) & (
+                    color_difficulty == 1
+                ):
+                    correct_key = [4, 6][correct_idx]  # left
+                elif (pixel_values[sequence_nr, trial_nr] < 0.5) & (
+                    color_difficulty == 2
+                ):
+                    correct_key = [6, 4][correct_idx]  # right
+                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (
+                    color_difficulty == 1
+                ):
+                    correct_key = [6, 4][correct_idx]  # right
+                elif (pixel_values[sequence_nr, trial_nr] >= 0.5) & (
+                    color_difficulty == 2
+                ):
+                    correct_key = [4, 6][correct_idx]  # left
 
                 # Line for trials
                 all_the_lines.append(
                     np.array(
                         [
+                            1,
+                            "",
+                            "gridTrialProc",
                             subject_id + 1,
                             5,
                             block_nr + 1,
@@ -170,6 +188,9 @@ for subject_id in ids:
             all_the_lines.append(
                 np.array(
                     [
+                        1,
+                        "",
+                        "gridSequenceEndProc",
                         subject_id + 1,
                         4,
                         block_nr + 1,
@@ -191,6 +212,9 @@ for subject_id in ids:
         all_the_lines.append(
             np.array(
                 [
+                    1,
+                    "",
+                    "gridBlockEndProc",
                     subject_id + 1,
                     2,
                     block_nr + 1,
@@ -216,9 +240,33 @@ for subject_id in ids:
     all_the_lines = np.stack(all_the_lines)
 
     # Save subject file
-    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}.csv")
-    np.savetxt(fn, all_the_lines, delimiter="\t", fmt='%f')
-    
+
+    # np.savetxt(fn, all_the_lines, delimiter="\t", fmt=fmt)
+
+    # Create data frame
+    cols = [
+        "Weight",
+        "Nested",
+        "Procedure",
+        "subjectID",
+        "event_code",
+        "block_nr",
+        "block_outcome",
+        "block_wiggleroom",
+        "sequence_nr",
+        "sequence_difficulty",
+        "sequence_feedback",
+        "sequence_feedback_scaled",
+        "trial_nr",
+        "trial_difficulty",
+        "color_difficulta",
+        "correct_key",
+    ]
+    df = pd.DataFrame(all_the_lines, columns=cols)
+
+    # Save
+    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}_exp.csv")
+    df.to_csv(fn, sep="\t")
 
     # Columns in file
     # 01: subject id
