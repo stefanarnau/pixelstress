@@ -38,7 +38,10 @@ for subject_id in ids:
     for block_nr in range(8):
 
         # Get relevant outcome factor
-        outcome_factor = {"good": 1, "bad": -1}[outcomes[block_nr]]
+        if the_path[block_nr] == "easy":
+            outcome_factor = {"good": 1, "bad": -1}[outcomes[block_nr]]
+        elif the_path[block_nr] == "close":
+            outcome_factor = {"good": -1, "bad": 1}[outcomes[block_nr]]
 
         # Set final value
         end_point = {
@@ -265,7 +268,7 @@ for subject_id in ids:
     df = pd.DataFrame(all_the_lines, columns=cols)
 
     # Save
-    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}_exp.csv")
+    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}_cntr.csv")
     df.to_csv(fn, sep="\t", index=False)
 
     # Columns in file

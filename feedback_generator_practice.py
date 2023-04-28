@@ -25,8 +25,8 @@ for subject_id in ids:
     all_the_lines = []
 
     # Define block condition pattern (fixed for now)
-    outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
-    the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
+    outcomes = ["good"]
+    the_path = ["easy"]
 
     # Get correct response for color 1
     if np.mod(subject_id, 2) == 1:
@@ -35,14 +35,17 @@ for subject_id in ids:
         correct_idx = 1  # Even number participants
 
     # Iterate blocks
-    for block_nr in range(8):
+    for block_nr in range(1):
 
         # Get relevant outcome factor
-        outcome_factor = {"good": 1, "bad": -1}[outcomes[block_nr]]
+        if the_path[block_nr] == "easy":
+            outcome_factor = {"good": 1, "bad": -1}[outcomes[block_nr]]
+        elif the_path[block_nr] == "close":
+            outcome_factor = {"good": -1, "bad": 1}[outcomes[block_nr]]
 
         # Set final value
         end_point = {
-            "easy": np.random.uniform(0.8, 1, (1,)),
+            "easy": np.random.uniform(0.6, 1, (1,)),
             "close": np.random.uniform(0.05, 0.2, (1,)),
         }[the_path[block_nr]] * outcome_factor
 
@@ -76,14 +79,14 @@ for subject_id in ids:
         )
 
         # Get performance scores
-        seq_scores = np.random.uniform(-1, 1, (30, 1))
+        seq_scores = np.random.uniform(-1, 1, (5, 1))
 
         # get non-scaled feedback scores
-        feedbacks_non_scaled = np.linspace(0, end_point, 30) + seq_scores
+        feedbacks_non_scaled = np.linspace(0, end_point, 5) + seq_scores
 
         # get scaled version of feedback scores (accumulated)
-        feedbacks_scaled = np.linspace(0, end_point, 30) + np.multiply(
-            seq_scores, np.linspace(0.9, 0, 30).reshape(-1, 1)
+        feedbacks_scaled = np.linspace(0, end_point, 5) + np.multiply(
+            seq_scores, np.linspace(0.9, 0, 5).reshape(-1, 1)
         )
 
         # Set outcome
@@ -94,7 +97,7 @@ for subject_id in ids:
         seq_scores[-1] = feedbacks_non_scaled[-1] - feedbacks_non_scaled[-2]
 
         # Get average pixel proportions for sequences
-        pixel_proportions = np.linspace(0.49, 0.25, 30)
+        pixel_proportions = np.linspace(0.49, 0.25, 5)
 
         # Sort pixel proportions by performance scores
         sort_idx = seq_scores.reshape(-1).argsort()
@@ -265,7 +268,7 @@ for subject_id in ids:
     df = pd.DataFrame(all_the_lines, columns=cols)
 
     # Save
-    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}_exp.csv")
+    fn = os.path.join(path_out, f"control_file_{str(subject_id+1)}_prct.csv")
     df.to_csv(fn, sep="\t", index=False)
 
     # Columns in file
