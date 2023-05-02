@@ -16,7 +16,7 @@ import pandas as pd
 path_out = "/home/plkn/repos/pixelstress/control_files/"
 
 # Number of ids to create files for
-ids = range(10)
+ids = range(1000, 1020)
 
 # Iterate participants
 for subject_id in ids:

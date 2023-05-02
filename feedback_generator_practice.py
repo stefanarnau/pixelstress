@@ -16,7 +16,7 @@ import pandas as pd
 path_out = "/home/plkn/repos/pixelstress/control_files/"
 
 # Number of ids to create files for
-ids = range(10)
+ids =  range(1000, 1020)
 
 # Iterate participants
 for subject_id in ids:
@@ -79,7 +79,7 @@ for subject_id in ids:
         )
 
         # Get performance scores
-        seq_scores = np.random.uniform(-1, 1, (5, 1))
+        seq_scores = np.random.uniform(-0.5, 1, (5, 1))
 
         # get non-scaled feedback scores
         feedbacks_non_scaled = np.linspace(0, end_point, 5) + seq_scores
