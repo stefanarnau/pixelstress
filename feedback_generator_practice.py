@@ -242,10 +242,6 @@ for subject_id in ids:
     # Stack lines to array
     all_the_lines = np.stack(all_the_lines)
 
-    # Save subject file
-
-    # np.savetxt(fn, all_the_lines, delimiter="\t", fmt=fmt)
-
     # Create data frame
     cols = [
         "Weight",
@@ -262,8 +258,8 @@ for subject_id in ids:
         "sequence_feedback_scaled",
         "trial_nr",
         "trial_difficulty",
-        "color_difficulta",
-        "correct_key",
+        "color",
+        "correct_response",
     ]
     df = pd.DataFrame(all_the_lines, columns=cols)
 
