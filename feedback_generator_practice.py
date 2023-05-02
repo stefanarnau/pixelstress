@@ -17,6 +17,7 @@ path_out = "/home/plkn/repos/pixelstress/control_files/"
 
 # Number of ids to create files for
 ids =  range(1000, 1020)
+ids =  range(100)
 
 # Iterate participants
 for subject_id in ids:
@@ -53,30 +54,6 @@ for subject_id in ids:
             outcome_wiggleroom = 1
         else:
             outcome_wiggleroom = 0
-
-        # Line for blockstart
-        all_the_lines.append(
-            np.array(
-                [
-                    1,
-                    "",
-                    "gridBlockStartProc",
-                    subject_id + 1,
-                    1,
-                    block_nr + 1,
-                    outcome_factor,
-                    outcome_wiggleroom,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ]
-            )
-        )
 
         # Get performance scores
         seq_scores = np.random.uniform(-0.5, 1, (5, 1))
@@ -210,30 +187,6 @@ for subject_id in ids:
                     ]
                 )
             )
-
-        # Line block end
-        all_the_lines.append(
-            np.array(
-                [
-                    1,
-                    "",
-                    "gridBlockEndProc",
-                    subject_id + 1,
-                    2,
-                    block_nr + 1,
-                    outcome_factor,
-                    outcome_wiggleroom,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ]
-            )
-        )
 
         # Plot feedback
         plt.plot(feedbacks_scaled)
