@@ -58,30 +58,6 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
         else:
             outcome_wiggleroom = 0
 
-        # Line for blockstart
-        all_the_lines.append(
-            np.array(
-                [
-                    1,
-                    "",
-                    "gridBlockStartProc",
-                    subject_id + 1,
-                    1,
-                    block_nr + 1,
-                    outcome_factor,
-                    outcome_wiggleroom,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ]
-            )
-        )
-
         # Calculate scores and feedbacks
         jump_range = 0.5
         last_jump = 100;
@@ -220,30 +196,6 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
                     ]
                 )
             )
-
-        # Line block end
-        all_the_lines.append(
-            np.array(
-                [
-                    1,
-                    "",
-                    "gridBlockEndProc",
-                    subject_id + 1,
-                    2,
-                    block_nr + 1,
-                    outcome_factor,
-                    outcome_wiggleroom,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ]
-            )
-        )
 
         # Plot feedback
         plt.plot(feedbacks)
