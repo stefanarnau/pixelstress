@@ -32,8 +32,8 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
     all_the_lines = []
 
     # Define block condition pattern (fixed for now)
-    outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
-    the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
+    outcomes = ["good", "good", "bad", "bad", "good", "good", "bad", "bad"]
+    the_path = ["easy", "close", "close", "easy", "close", "easy", "easy", "close"]
 
     # Get correct response for color 1
     if np.mod(subject_id, 2) == 1:
