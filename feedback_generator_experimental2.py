@@ -104,7 +104,7 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
             seq_scores[-1] = (feedbacks[-1] * n_sequences) - sum(seq_scores[: -1])
             
             # Update last jump
-            last_jump = seq_scores[-1]
+            last_jump = seq_scores[-1][0]
 
         # Get average pixel proportions for sequences
         pixel_proportions = np.linspace(0.49, 0.25, n_sequences)
