@@ -22,7 +22,7 @@ ids_experiment = range(100)
 
 # Set parameters
 n_blocks = 8
-n_sequences = 15
+n_sequences = 12
 n_trials = 8
 
 # Iterate participants
