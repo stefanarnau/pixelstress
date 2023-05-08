@@ -11,22 +11,29 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+import itertools as it
 
 # Path out
 path_out = "/home/plkn/repos/pixelstress/control_files/"
 
 # Number of ids to create files for
-ids = range(1000, 1020)
+ids_pilot = range(1000, 1020)
+ids_experiment = range(100)
+
+# Set parameters
+n_blocks = 8
+n_sequences = 12
+n_trials = 8
 
 # Iterate participants
-for subject_id in ids:
+for subject_id in it.chain(ids_pilot, ids_experiment):
 
     # Collector for all the numbers
     all_the_lines = []
 
     # Define block condition pattern (fixed for now)
-    outcomes = ["good", "bad", "good", "bad", "good", "bad", "good", "bad"]
-    the_path = ["close", "close", "easy", "easy", "close", "close", "easy", "easy"]
+    outcomes = ["good", "good", "bad", "bad", "good", "good", "bad", "bad"]
+    the_path = ["easy", "close", "close", "easy", "close", "easy", "easy", "close"]
 
     # Get correct response for color 1
     if np.mod(subject_id, 2) == 1:
@@ -35,7 +42,7 @@ for subject_id in ids:
         correct_idx = 1  # Even number participants
 
     # Iterate blocks
-    for block_nr in range(8):
+    for block_nr in range(n_blocks):
 
         # Get relevant outcome factor
         if the_path[block_nr] == "easy":
@@ -45,8 +52,8 @@ for subject_id in ids:
 
         # Set final value
         end_point = {
-            "easy": np.random.uniform(0.8, 1, (1,)),
-            "close": np.random.uniform(0.05, 0.2, (1,)),
+            "easy": np.random.uniform(0.35, 0.5, (1,)),
+            "close": np.random.uniform(0.01, 0.05, (1,)),
         }[the_path[block_nr]] * outcome_factor
 
         if the_path[block_nr] == "easy":
@@ -78,26 +85,32 @@ for subject_id in ids:
             )
         )
 
-        # Get performance scores
-        seq_scores = np.random.uniform(-1, 1, (30, 1))
-
-        # get non-scaled feedback scores
-        feedbacks_non_scaled = np.linspace(0, end_point, 30) + seq_scores
-
-        # get scaled version of feedback scores (accumulated)
-        feedbacks_scaled = np.linspace(0, end_point, 30) + np.multiply(
-            seq_scores, np.linspace(0.9, 0, 30).reshape(-1, 1)
-        )
-
-        # Set outcome
-        feedbacks_scaled[-1] = end_point
-        feedbacks_non_scaled[-1] = end_point
-
-        # Adjust last performance score to match the fixed outcome
-        seq_scores[-1] = feedbacks_non_scaled[-1] - feedbacks_non_scaled[-2]
+        # Calculate scores and feedbacks
+        jump_range = 0.5
+        last_jump = 100;
+        while np.abs(last_jump) > jump_range:
+            
+            # Get performance scores
+            seq_scores = np.random.uniform(end_point - jump_range, end_point + jump_range, (n_sequences, 1))
+            
+            # Calculate feedbacks
+            feedbacks = []
+            for score_idx in range(len(seq_scores)):
+                feedbacks.append(seq_scores[:score_idx + 1].mean())
+    
+            # Set outcome
+            feedbacks[-1] = end_point
+            
+            # Set last score to match feedback
+            # feedbacks[-1] = (sum(seq_scores[: -1]) + x) / n_sequences
+            # feedbacks[-1] * n_sequences = sum(seq_scores[: -1]) + x
+            seq_scores[-1] = (feedbacks[-1] * n_sequences) - sum(seq_scores[: -1])
+            
+            # Update last jump
+            last_jump = seq_scores[-1][0]
 
         # Get average pixel proportions for sequences
-        pixel_proportions = np.linspace(0.49, 0.25, 30)
+        pixel_proportions = np.linspace(0.49, 0.25, n_sequences)
 
         # Sort pixel proportions by performance scores
         sort_idx = seq_scores.reshape(-1).argsort()
@@ -109,7 +122,7 @@ for subject_id in ids:
         # Get pixel values for sequences
         pixel_values = []
         for x in pixel_proportions_sorted:
-            pixel_values.append(np.random.normal(loc=x, scale=0.08, size=(10,)))
+            pixel_values.append(np.random.normal(loc=x, scale=0.08, size=(n_trials,)))
         pixel_values = np.stack(pixel_values)
 
         # Loop sequences
@@ -201,8 +214,8 @@ for subject_id in ids:
                         outcome_wiggleroom,
                         sequence_nr + 1,
                         pixel_proportions_sorted[sequence_nr],
-                        feedbacks_non_scaled[sequence_nr, 0],
-                        feedbacks_scaled[sequence_nr, 0],
+                        seq_scores[sequence_nr, 0],
+                        feedbacks[sequence_nr],
                         0,
                         0,
                         0,
@@ -236,8 +249,8 @@ for subject_id in ids:
         )
 
         # Plot feedback
-        plt.plot(feedbacks_scaled)
-        plt.hlines(0, 0, 32)
+        plt.plot(feedbacks)
+        plt.hlines(0, 0, n_sequences)
 
     # Stack lines to array
     all_the_lines = np.stack(all_the_lines)
