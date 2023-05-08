@@ -25,6 +25,42 @@ for s = 1 : length(subject_list)
     % Load
     EEG = pop_loadbv(PATH_RAW, [subject, '.vhdr'], [], []);
 
+    % Iterate events
+    trialinfo = [];
+    block_nr = -1;
+    trial_nr = 0;
+    enums = zeros(256, 1);
+    for e = 1 : length(EEG.event)
+
+        % If an S event
+        if strcmpi(EEG.event(e).type(1), 'S')
+
+            % Get event number
+            enum = str2num(EEG.event(e).type(2 : end));
+
+            enums(enum) = enums(enum) + 1;
+
+            % Set block number
+            if enum >= 210 & enum <= 220
+                block_nr = str2num(EEG.event(e).type(end))
+            end
+
+            % If trial
+            if enum == 100
+
+                % Increase!!!!!
+                trial_nr = trial_nr + 1;
+
+                % Save info
+                trialinfo(trial_nr, :) = [trial_nr, block_nr];
+
+
+            end
+
+        end
+
+    end
+
     % Fork response button channels
     EEG = pop_select(EEG, 'channel', [1 : 64]);
 
