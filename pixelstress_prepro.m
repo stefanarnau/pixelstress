@@ -42,7 +42,7 @@ for s = 1 : length(subject_list)
 
             % Set block number
             if enum >= 210 & enum <= 220
-                block_nr = str2num(EEG.event(e).type(end))
+                block_nr = str2num(EEG.event(e).type(end));
             end
 
             % If trial
@@ -60,6 +60,12 @@ for s = 1 : length(subject_list)
         end
 
     end
+
+    enums= horzcat([1:256]', enums);
+
+    enums(enums(:, 2)  == 0, :) = [];
+
+    aa=bb
 
     % Fork response button channels
     EEG = pop_select(EEG, 'channel', [1 : 64]);
