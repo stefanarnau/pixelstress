@@ -72,12 +72,13 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
                 feedbacks.append(seq_scores[:score_idx + 1].mean())
     
             # Set outcome
-            feedbacks[-1] = end_point
+            feedbacks[-1] = end_point[0]
             
             # Set last score to match feedback
             # feedbacks[-1] = (sum(seq_scores[: -1]) + x) / n_sequences
             # feedbacks[-1] * n_sequences = sum(seq_scores[: -1]) + x
             seq_scores[-1] = (feedbacks[-1] * n_sequences) - sum(seq_scores[: -1])
+            seq_scores[-1] = seq_scores[-1][0]
             
             # Update last jump
             last_jump = seq_scores[-1][0]
