@@ -122,6 +122,10 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
         for x in pixel_proportions_sorted:
             pixel_values.append(np.random.normal(loc=x, scale=0.08, size=(n_trials,)))
         pixel_values = np.stack(pixel_values)
+        
+        # Replace extreme values
+        pixel_values[pixel_values < 0.05] = 0.05
+        pixel_values[pixel_values > 0.95] = 0.95
 
         # Loop sequences
         for sequence_nr in range(pixel_values.shape[0]):
