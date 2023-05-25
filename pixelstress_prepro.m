@@ -2,12 +2,12 @@ clear all;
 
 % PATH VARS
 PATH_EEGLAB = '/home/plkn/eeglab2022.1/';
-PATH_RAW = '/mnt/data_dump/pixelstress/eeg_pilot_yannick/';
+PATH_RAW = '/mnt/data_dump/pixelstress/eeg_raw/';
 PATH_ICSET = '';
 PATH_AUTOCLEANED = '';
 
 % Subject list (stating the obvious here...)
-subject_list = {'ExpExp104_1001_1_1_3'};
+subject_list = {'ExpExp104_2_2_1'};
 
 % Init eeglab
 addpath(PATH_EEGLAB);
