@@ -1,13 +1,27 @@
 clear all;
 
 % PATH VARS
-PATH_EEGLAB = '/home/plkn/eeglab2022.1/';
+PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
 PATH_RAW = '/mnt/data_dump/pixelstress/eeg_raw/';
+PATH_CONTROL_FILES = '/home/plkn/repos/pixelstress/control_files/';
 PATH_ICSET = '';
 PATH_AUTOCLEANED = '';
 
-% Subject list (stating the obvious here...)
-subject_list = {'ExpExp104_2_2_1'};
+% Get bdf file list
+fl = dir([PATH_RAW, '*.vhdr']);
+
+% Build a list of subject numbers
+subject_id = [];
+session_condition = [];
+for f = 1 : numel(fl)
+
+    % Get fn integers
+    int_cell = regexp(fl(f).name,'\d*', 'Match');
+
+    % Save
+    subject_id(f) = str2double(int_cell{2});
+    session_condition(f) = str2double(int_cell{3});
+end
 
 % Init eeglab
 addpath(PATH_EEGLAB);
@@ -17,18 +31,54 @@ eeglab;
 channel_location_file = which('standard-10-5-cap385.elp');
 
 % Loop subjects
-for s = 1 : length(subject_list)
+for s = 1 : length(fl)
 
-    % Get id stuff
-    subject = subject_list{s};
+    % Load EEG
+    EEG = pop_loadbv(PATH_RAW, fl(s).name, [], []);
 
-    % Load
-    EEG = pop_loadbv(PATH_RAW, [subject, '.vhdr'], [], []);
+    % Set session string
+    if session_condition(s) == 1
+        str_cond = 'exp';
+    elseif session_condition(s) == 2
+        str_cond = 'cntr';
+    end
+
+    % Load control file
+    CNT = readtable([PATH_CONTROL_FILES, 'control_file_', num2str(subject_id(s)), '_', str_cond, '.csv']);
+
+    % Copy feedback info to following sequence trials
+    fb = NaN;
+    fb_scaled = NaN;
+    for e = 1 : size(CNT, 1)
+        if CNT(e, :).event_code == 4
+            fb = CNT(e, :).sequence_feedback;
+            fb_scaled = CNT(e, :).sequence_feedback_scaled;
+        end
+        if CNT(e, :).event_code == 5
+            CNT(e, :).sequence_feedback = fb;
+            CNT(e, :).sequence_feedback_scaled = fb_scaled;
+
+            % Set feedback NaN if first sequence of block
+            if CNT(e, :).sequence_nr == 1
+                CNT(e, :).sequence_feedback = NaN;
+                CNT(e, :).sequence_feedback_scaled = NaN;
+            end
+        end
+    end
+
+    % Drop non-trial lines
+    CNT = CNT(CNT.event_code == 5, :);
+
+    % Check trialcount
+    if size(CNT, 1) ~= 768
+        fprintf('\n\n\nSOMETHING IS WEIIIRDDD!!!!!!\n\n\n');
+        pause;
+    end
 
     % Iterate events
     trialinfo = [];
     block_nr = -1;
-    trial_nr = 0;
+    trial_nr_total = 0;
     enums = zeros(256, 1);
     for e = 1 : length(EEG.event)
 
@@ -45,27 +95,49 @@ for s = 1 : length(subject_list)
                 block_nr = str2num(EEG.event(e).type(end));
             end
 
-            % If trial
-            if enum == 100
-
-                % Increase!!!!!
-                trial_nr = trial_nr + 1;
+            % If trial and no practice block
+            if enum == 100 & block_nr > 0
 
                 % Save info
-                trialinfo(trial_nr, :) = [trial_nr, block_nr];
-
+                trial_nr_total = trial_nr_total + 1;
+                trialinfo(trial_nr_total, :) = [e,...
+                                                subject_id(s),...
+                                                session_condition(s),... 
+                                                trial_nr_total,...
+                                                block_nr,...
+                                                ];
 
             end
-
         end
-
     end
 
-    enums= horzcat([1:256]', enums);
+    % Check trialcount
+    if trial_nr_total ~= 768
+        fprintf('\n\n\nSOMETHING IS WEIIIRDDD!!!!!!\n\n\n');
+        pause;
+    end
 
-    enums(enums(:, 2)  == 0, :) = [];
+    % Convert trialinfo to table
+    trialinfo = array2table(trialinfo, 'VariableNames', {'event_number', 'id', 'session_condition', 'trial_nr_total', 'block_nr'});
 
-    aa=bb
+    % Combine info
+    trialinfo = [trialinfo, CNT(:, [7 : end])];
+
+    % Rename vars for clarity
+    trialinfo = renamevars(trialinfo, ["sequence_feedback", "sequence_feedback_scaled"], ["last_feedback", "last_feedback_scaled"]);
+
+    % Mark trials in event structure
+    for t = 1 : size(trialinfo, 1)
+        EEG.event(trialinfo(t, :).event_number).code = 'X';
+        EEG.event(trialinfo(t, :).event_number).type = 'X';
+    end
+
+    % Detect responses
+
+    % TODO !!!!!!!!
+
+    aa = bb;
+
 
     % Fork response button channels
     EEG = pop_select(EEG, 'channel', [1 : 64]);
@@ -108,7 +180,7 @@ for s = 1 : length(subject_list)
     dataRank = sum(eig(cov(double(EEG_TF.data'))) > 1e-6); 
 
     % Epoch EEG data
-    EEG    = pop_epoch(EEG, {'X'}, [-0.3, 2], 'newname', [subject '_epoched'], 'epochinfo', 'yes');
+    EEG    = pop_epoch(EEG, {'X'}, [-0.3, 1.6], 'newname', [subject '_epoched'], 'epochinfo', 'yes');
     EEG    = pop_rmbase(EEG, [-200, 0]);
     EEG_TF = pop_epoch(EEG_TF, {'X'}, [-0.8, 2.5], 'newname', [subject '_epoched'],  'epochinfo', 'yes');
     EEG_TF = pop_rmbase(EEG_TF, [-200, 0]);
@@ -144,8 +216,6 @@ for s = 1 : length(subject_list)
     % Save clean data
     pop_saveset(EEG, 'filename',    [subject, '_cleaned_erp.set'],       'filepath', PATH_AUTOCLEANED, 'check', 'on');
     pop_saveset(EEG_TF, 'filename', [subject, '_cleaned_tf.set'],        'filepath', PATH_AUTOCLEANED, 'check', 'on');
-    pop_saveset(EYE, 'filename',    [subject, '_cleaned_eye_erp.set'],   'filepath', PATH_AUTOCLEANED, 'check', 'on');
-    pop_saveset(EYE_TF, 'filename', [subject, '_cleaned_eye_tf.set'],    'filepath', PATH_AUTOCLEANED, 'check', 'on');
 
 end % End subject loop
 
