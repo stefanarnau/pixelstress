@@ -2,10 +2,10 @@ clear all;
 
 % PATH VARS
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
-PATH_RAW = '/mnt/data_dump/pixelstress/eeg_raw/';
-PATH_CONTROL_FILES = '/home/plkn/repos/pixelstress/control_files/';
-PATH_ICSET = '';
-PATH_AUTOCLEANED = '';
+PATH_RAW = '/mnt/data_dump/pixelstress/0_eeg_raw/';
+PATH_CONTROL_FILES = '/mnt/data_dump/pixelstress/0_control_files/';
+PATH_ICSET = '/mnt/data_dump/pixelstress/1_icset/';
+PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 
 % Get bdf file list
 fl = dir([PATH_RAW, '*.vhdr']);
@@ -21,6 +21,24 @@ for f = 1 : numel(fl)
     % Save
     subject_id(f) = str2double(int_cell{2});
     session_condition(f) = str2double(int_cell{3});
+end
+
+% Remarks
+% VP 18: Weird data, all ICs rejected. Noclear erp
+
+% Exclude broken
+to_drop = find(ismember(subject_id, []));
+subject_id(to_drop) = [];
+session_condition(to_drop) = [];
+
+% Exclude already done
+already_done = find(ismember(subject_id, [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]));
+subject_id(already_done) = [];
+session_condition(already_done) = [];
+
+%
+if isempty(subject_id)
+    error('there are no datasets... :(');
 end
 
 % Init eeglab
@@ -71,7 +89,7 @@ for s = 1 : length(fl)
 
     % Check trialcount
     if size(CNT, 1) ~= 768
-        fprintf('\n\n\nSOMETHING IS WEIIIRDDD!!!!!!\n\n\n');
+        fprintf('\n\n\nSOMETHING IS WEIIIRDDD with control file things!!!!!!\n\n\n');
         pause;
     end
 
@@ -113,7 +131,7 @@ for s = 1 : length(fl)
 
     % Check trialcount
     if trial_nr_total ~= 768
-        fprintf('\n\n\nSOMETHING IS WEIIIRDDD!!!!!!\n\n\n');
+        fprintf('\n\n\nSOMETHING IS WEIIIRDDD with the trials!!!!!!\n\n\n');
         pause;
     end
 
@@ -133,13 +151,67 @@ for s = 1 : length(fl)
     end
 
     % Detect responses
+    response_data = [];
+    response_counter = 0;
+    for e = 1 : length(EEG.event)
 
-    % TODO !!!!!!!!
+        % If trial
+        if strcmpi(EEG.event(e).type, 'X')
 
-    aa = bb;
+            % Loop for response
+            resp = 0;
+            resp_lat = 0;
+            f = e;
+            while resp == 0 & resp_lat <= 1200
 
+                f = f + 1;
 
-    % Fork response button channels
+                % get event latency
+                resp_lat = EEG.event(f).latency - EEG.event(e).latency;
+
+                % If response key pressed
+                if strcmpi(EEG.event(f).type, 'L  1') & resp_lat <= 1200
+                    resp = 1;
+                elseif strcmpi(EEG.event(f).type, 'R  1') & resp_lat <= 1200
+                    resp = 2;
+                end
+            end
+
+            % Save to matrix
+            response_counter = response_counter + 1;
+            response_data(response_counter, :) = [resp, resp_lat, 0];
+        end
+    end
+
+    % Check trialcount
+    if response_counter ~= 768
+        fprintf('\n\n\nSOMETHING IS WEIIIRDDD!!!!!!\n\n\n');
+        pause;
+    end
+
+    % Convert response data to table
+    response_data = array2table(response_data, 'VariableNames', {'response_key', 'rt', 'accuracy'});
+
+    % Combine info
+    trialinfo = [trialinfo, response_data];
+
+    % Code accuray
+    for t = 1 : size(trialinfo, 1)
+        if trialinfo(t, :).correct_response == 4 & trialinfo(t, :).response_key == 2
+            trialinfo(t, :).accuracy = 1; % correct
+        elseif trialinfo(t, :).correct_response == 6 & trialinfo(t, :).response_key == 1
+            trialinfo(t, :).accuracy = 1; % correct
+        elseif trialinfo(t, :).response_key == 0
+            trialinfo(t, :).accuracy = 2; % omission
+        else
+            trialinfo(t, :).accuracy = 0; % incorrect
+        end
+     end
+
+    % Add to EEG
+    EEG.trialinfo = trialinfo;
+
+    % Select EEG channels
     EEG = pop_select(EEG, 'channel', [1 : 64]);
 
     % Add FCz as empty channel
@@ -177,19 +249,21 @@ for s = 1 : length(fl)
     EEG_TF = pop_reref(EEG_TF, []);
 
     % Determine rank of data
-    dataRank = sum(eig(cov(double(EEG_TF.data'))) > 1e-6); 
+    dataRank = sum(eig(cov(double(EEG_TF.data'))) > 1e-6);
 
     % Epoch EEG data
-    EEG    = pop_epoch(EEG, {'X'}, [-0.3, 1.6], 'newname', [subject '_epoched'], 'epochinfo', 'yes');
-    EEG    = pop_rmbase(EEG, [-200, 0]);
-    EEG_TF = pop_epoch(EEG_TF, {'X'}, [-0.8, 2.5], 'newname', [subject '_epoched'],  'epochinfo', 'yes');
-    EEG_TF = pop_rmbase(EEG_TF, [-200, 0]);
+    [EEG, idx_to_keep] = pop_epoch(EEG, {'X'}, [-1.3, 1.2], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'], 'epochinfo', 'yes');
+    EEG.trialinfo =  EEG.trialinfo(idx_to_keep, :);
+    EEG = pop_rmbase(EEG, [-1200, -1000]);
+    [EEG_TF, idx_to_keep] = pop_epoch(EEG_TF, {'X'}, [-2.1, 2], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'],  'epochinfo', 'yes');
+    EEG_TF.trialinfo =  EEG_TF.trialinfo(idx_to_keep, :);
+    EEG_TF = pop_rmbase(EEG_TF, [-1200, -1000]);
 
     % Autoreject trials
     [EEG,    EEG.rejected_epochs]    = pop_autorej(EEG,    'nogui', 'on');
     [EEG_TF, EEG_TF.rejected_epochs] = pop_autorej(EEG_TF, 'nogui', 'on');
 
-    % Remove from trialinfo
+    % Remove rejected trials from trialinfo
     EEG.trialinfo(EEG.rejected_epochs, :) = [];
     EEG_TF.trialinfo(EEG_TF.rejected_epochs, :) = [];
 
@@ -206,16 +280,16 @@ for s = 1 : length(fl)
     EEG.nobrainer = EEG_TF.nobrainer;
 
     % Save IC set
-    pop_saveset(EEG,    'filename', [subject, '_icset_erp.set'], 'filepath', PATH_ICSET, 'check', 'on');
-    pop_saveset(EEG_TF, 'filename', [subject, '_icset_tf.set'],  'filepath', PATH_ICSET, 'check', 'on');
+    pop_saveset(EEG, 'filename', ['vp_', num2str(trialinfo(1, 2).id), '_icset_erp.set'], 'filepath', PATH_ICSET, 'check', 'on');
+    pop_saveset(EEG_TF, 'filename', ['vp_', num2str(trialinfo(1, 2).id), '_icset_tf.set'], 'filepath', PATH_ICSET, 'check', 'on');
 
     % Remove components
     EEG    = pop_subcomp(EEG, EEG.nobrainer, 0);
     EEG_TF = pop_subcomp(EEG_TF, EEG_TF.nobrainer, 0);
 
     % Save clean data
-    pop_saveset(EEG, 'filename',    [subject, '_cleaned_erp.set'],       'filepath', PATH_AUTOCLEANED, 'check', 'on');
-    pop_saveset(EEG_TF, 'filename', [subject, '_cleaned_tf.set'],        'filepath', PATH_AUTOCLEANED, 'check', 'on');
+    pop_saveset(EEG, 'filename', ['vp_', num2str(trialinfo(1, 2).id), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'check', 'on');
+    pop_saveset(EEG_TF, 'filename', ['vp_', num2str(trialinfo(1, 2).id), '_cleaned_tf.set'], 'filepath', PATH_AUTOCLEANED, 'check', 'on');
 
 end % End subject loop
 
