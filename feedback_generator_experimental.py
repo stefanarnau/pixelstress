@@ -253,6 +253,8 @@ for subject_id in it.chain(ids_pilot, ids_experiment):
         # Plot feedback
         plt.plot(feedbacks)
         plt.hlines(0, 0, n_sequences)
+        
+    aa=bb
 
     # Stack lines to array
     all_the_lines = np.stack(all_the_lines)

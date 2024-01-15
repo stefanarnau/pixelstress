@@ -5,7 +5,7 @@ PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
 
 % List of preprocessed datasets
-subject_list = [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+subject_list = [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
 
 % Init eeglab
 addpath(PATH_EEGLAB);
@@ -43,7 +43,7 @@ for s = 1 : length(subject_list)
     idx_clear_lo_late = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr >= 7;
 
     % Channel idx
-    chan_idx = [61, 62, 63];
+    chan_idx = [9, 10, 65];
 
     % Get erp
     erp(between_factor, 1, :) = squeeze(erp(between_factor, 1, :)) + squeeze(mean(EEG.data(chan_idx, :, idx_close_hi_earl), [1, 3]))';
