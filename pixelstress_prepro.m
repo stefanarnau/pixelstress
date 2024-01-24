@@ -32,7 +32,7 @@ subject_id(to_drop) = [];
 session_condition(to_drop) = [];
 
 % Exclude already done
-already_done = find(ismember(subject_id, [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]));
+already_done = find(ismember(subject_id, [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]));
 subject_id(already_done) = [];
 session_condition(already_done) = [];
 
