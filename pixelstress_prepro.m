@@ -288,8 +288,8 @@ for s = 1 : length(fl)
     EEG_TF = pop_subcomp(EEG_TF, EEG_TF.nobrainer, 0);
 
     % Write trialinfo as csv
-    writetable(EEG.trialinfo, [PATH_AUTOCLEANED, 'vp_', num2str(subject_list(s)), '_erp_trialinfo.csv']);
-    writetable(EEG_TF.trialinfo, [PATH_AUTOCLEANED, 'vp_', num2str(subject_list(s)), '_tf_trialinfo.csv']);
+    writetable(EEG.trialinfo, [PATH_AUTOCLEANED, 'vp_', num2str(trialinfo(1, 2).id), '_erp_trialinfo.csv']);
+    writetable(EEG_TF.trialinfo, [PATH_AUTOCLEANED, 'vp_', num2str(trialinfo(1, 2).id), '_tf_trialinfo.csv']);
 
     % Save clean data
     pop_saveset(EEG, 'filename', ['vp_', num2str(trialinfo(1, 2).id), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'check', 'on');
