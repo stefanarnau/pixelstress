@@ -5,7 +5,7 @@ PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
 
 % List of preprocessed datasets
-subject_list = [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33];
+subject_list = [2, 7, 8, 9, 10, 11 ,12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34];
 
 % Init eeglab
 addpath(PATH_EEGLAB);
@@ -54,10 +54,6 @@ for s = 1 : length(subject_list)
     erp(between_factor, 6, :) = squeeze(erp(between_factor, 6, :)) + squeeze(mean(EEG.data(chan_idx, :, idx_close_lo_late), [1, 3]))';
     erp(between_factor, 7, :) = squeeze(erp(between_factor, 7, :)) + squeeze(mean(EEG.data(chan_idx, :, idx_clear_hi_late), [1, 3]))';
     erp(between_factor, 8, :) = squeeze(erp(between_factor, 8, :)) + squeeze(mean(EEG.data(chan_idx, :, idx_clear_lo_late), [1, 3]))';
-
-    % Get accuracies
-    tmp = EEG.trialinfo.accuracy(idx_close_hi_earl) == 1;
-    aa=bb
 
 end
 
