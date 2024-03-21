@@ -43,15 +43,21 @@ subject_list = {'2_2',...
 addpath(PATH_EEGLAB);
 eeglab;
 
-% Collector matrix
-data = [];
+% A prepro-stats table
+stats_abs = [];
+stats_perc = [];
 
-% Loop subjects and collect trialinfo
+% Loop subjects
 for s = 1 : length(subject_list)
-    EEG = pop_loadset('filename', ['vp_', num2str(subject_list(s)), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
-    if s == 1
-        data = EEG.trialinfo;
-    else
-        data = [data; EEG.trialinfo];
-    end
+
+    % Load erp data
+    EEG_ERP = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
+
+    % Load tf data
+    EEG_TF = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_tf.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
+
+    % Fill stats
+    stats_abs(s, :) = [EEG_ERP.trialinfo(1, 2).id, length(EEG_ERP.chans_rejected), length(EEG_ERP.rejected_epochs), length(EEG_ERP.nobrainer), length(EEG_TF.chans_rejected), length(EEG_TF.rejected_epochs), length(EEG_TF.nobrainer)];
+    stats_perc(s, :) = [EEG_ERP.trialinfo(1, 2).id, length(EEG_ERP.chans_rejected) / 65, length(EEG_ERP.rejected_epochs) / 768, length(EEG_ERP.nobrainer) / 64, length(EEG_TF.chans_rejected) / 65, length(EEG_TF.rejected_epochs) / 768, length(EEG_TF.nobrainer) / 64];
+
 end
