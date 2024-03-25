@@ -3,8 +3,9 @@ clear all;
 % PATH VARS
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
+PATH_BEHAVIOR = '/mnt/data_dump/pixelstress/3_behavior/';
 
-
+% The subject list
 subject_list = {'2_2',...
                 '7_2',...
                 '8_2',...
@@ -43,15 +44,27 @@ subject_list = {'2_2',...
 addpath(PATH_EEGLAB);
 eeglab;
 
-% Collector matrix
+% Loop subjects and collect trialinfo tf trials
 data = [];
-
-% Loop subjects and collect trialinfo
 for s = 1 : length(subject_list)
-    EEG = pop_loadset('filename', ['vp_', num2str(subject_list(s)), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
+    EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_tf.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
     if s == 1
         data = EEG.trialinfo;
     else
         data = [data; EEG.trialinfo];
     end
 end
+writetable(data, [PATH_BEHAVIOR, 'behavior_all_tf.csv'], 'Delimiter', ',');
+
+% Loop subjects and collect trialinfo erp trials
+data = [];
+for s = 1 : length(subject_list)
+    EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
+    if s == 1
+        data = EEG.trialinfo;
+    else
+        data = [data; EEG.trialinfo];
+    end
+end
+writetable(data, [PATH_BEHAVIOR, 'behavior_all_erp.csv'], 'Delimiter', ',');
+

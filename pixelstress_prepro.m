@@ -42,7 +42,7 @@ subject_list = {'2_2',...
                 '39_2',...
                };
 
-subject_list = {};
+%subject_list = {};
 
 % Failed:
 % '13_1' trialcount too low. Notes: Abbruch wegen Kreislaufproblemen.
