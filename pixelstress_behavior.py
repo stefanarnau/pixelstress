@@ -14,9 +14,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import scipy.io
-import sklearn.linear_model
-import sklearn.preprocessing
 import seaborn as sns
+import pingouin as pg
 
 # Define path
 path_in = "/mnt/data_dump/pixelstress/3_behavior/"
@@ -46,9 +45,13 @@ series_accuracy = series_n_correct / series_n_all
 # Get session condition for conditions
 series_session = df.groupby(["id", "block_phase", "block_wiggleroom", "block_outcome"])["session_condition"].mean().reset_index(name='session')["session"]
 
+# Compute inverse efficiency
+series_ie = df_b["rt"] / series_accuracy
+
 # Combine
 df_b["acc"] = series_accuracy
 df_b["group"] = series_session
+df_b["ie"] = series_ie
 
 # Rename vars
 df_b = df_b.rename(columns={"block_phase": "time", "block_wiggleroom": "dist", "block_outcome": "outcome"})
@@ -58,20 +61,44 @@ df_b["group"] = df_b["group"].astype("category")
 df_b["outcome"] = df_b["outcome"].astype("category")
 df_b["dist"] = df_b["dist"].astype("category")
 
+# Remove start timepoints
+df_b = df_b.drop(df_b[df_b.time == "begin"].index)
+
+# Plot RT
+g = sns.FacetGrid(df_b, col="dist", hue="outcome")
+g.map(sns.pointplot, "group", "rt")
+g.add_legend()
+
+# Plot acc
+g = sns.FacetGrid(df_b, col="dist", hue="outcome")
+g.map(sns.pointplot, "group", "acc")
+g.add_legend()
+
+# Plot ie
+g = sns.FacetGrid(df_b, col="dist", hue="outcome")
+g.map(sns.pointplot, "group", "ie")
+g.add_legend()
+
 
 
 # Plot RT
-g = sns.FacetGrid(df_b, row="group", col="time", hue="outcome")
-g.map(sns.pointplot, "dist", "rt")
+g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
+g.map(sns.pointplot, "time", "rt")
 g.add_legend()
-
 
 # Plot accuracy
-g = sns.FacetGrid(df_b, row="group", col="time", hue="outcome")
-g.map(sns.pointplot, "dist", "acc")
+g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
+g.map(sns.pointplot, "time", "acc")
 g.add_legend()
 
+# Plot inverse efficiency
+g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
+g.map(sns.pointplot, "time", "ie")
+g.add_legend()
 
+# Save to csv for R
+fn = os.path.join(path_in, "pixelstress_behavioral_data.csv")
+df_b.to_csv(fn, index=False) 
 
 
 
