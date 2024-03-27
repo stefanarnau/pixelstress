@@ -16,65 +16,77 @@ import joblib
 import scipy.io
 import sklearn.linear_model
 import sklearn.preprocessing
+import matplotlib.pyplot as plt
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
 
 # Define datasets
-datasets = glob.glob(f"{path_in}/*erp.set")
+datasets = glob.glob(f"{path_in}/*tf.set")
+
+# Collectors for coefs
+coefs_time_left = []
+coefs_feedback = []
+coefs_interaction = []
 
 # Loop datasets
 for dataset in datasets:
 
     # Load a dataset
-    epochs = mne.io.read_epochs_eeglab(dataset).apply_baseline(baseline=(-1.2, -1.0))
+    eeg_epochs = mne.io.read_epochs_eeglab(dataset).apply_baseline(baseline=(-1.2, -1.0))
     
     # Load trialinfo
-    trialinfo = pd.read_csv(dataset.split("cleaned_")[0] + "erp_trialinfo.csv")
+    trialinfo = pd.read_csv(dataset.split("cleaned_")[0] + "tf_trialinfo.csv")
     
-    # Get data as trial x channel x times
-    eeg_data_3d = epochs.get_data()
+    # Perform single trial time-frequency analysis
+    n_freqs = 20
+    tf_freqs = np.linspace(2, 20, n_freqs)
+    tf_cycles = np.linspace(3, 12, n_freqs)
+    tf_epochs = mne.time_frequency.tfr_morlet(
+        eeg_epochs,
+        tf_freqs,
+        n_cycles=tf_cycles,
+        average=False,
+        return_itc=False,
+        n_jobs=-2,
+        decim=4,
+    )
+
+    # Apply baseline
+    #tf_epochs.apply_baseline((-1.5, -1.2), mode='zscore', verbose=None)
+
+    # Save info object for plotting topos
+    info_object = tf_epochs.info
+
+    # Prune in time
+    to_keep_idx = (tf_epochs.times >= -1.5) & (tf_epochs.times <= 0.5)
+    tf_times = tf_epochs.times[to_keep_idx]
+    tf_data = tf_epochs.data[:, :, :, to_keep_idx]
     
     # Exclude trials of first sequence, as there is no previous feedback
     idx_drop = list(np.where(trialinfo["sequence_nr"] == 1)[0])
     trialinfo.drop(idx_drop, axis=0, inplace=True)
-    eeg_data_3d = np.delete(eeg_data_3d, idx_drop, axis=0)
-    
-    # Collectors
-    X = []
-    y = []
-    
-    # Iterate sequences n blocks
-    for block in list(set(trialinfo["block_nr"])):
-        for seq in list(set(trialinfo["sequence_nr"])):
-            
-            # Get indices for block-sequence combination
-            idx = list(np.where((trialinfo["block_nr"] == block) & (trialinfo["sequence_nr"] == seq))[0])
-            
-            # Get erp for sequence
-            X.append(eeg_data_3d[idx, :, :].mean(axis=0))
-            
-            #
-            
-
+    trialinfo.reset_index(inplace=True)
+    tf_data = np.delete(tf_data, idx_drop, axis=0)
     
     # Get dims
-    n_trial, n_channel, n_time = eeg_data_3d.shape
+    n_trial, n_channel, n_freqs, n_time = tf_data.shape
+    
+    # Impose dependency tot
+    #for t in range(trialinfo.shape[0]):
+    #    tf_data[t, 0:5, 0:10, :] = trialinfo["trial_nr_total"][t]
+        
     
     # Reshape to 2d
-    X = eeg_data_3d.reshape((n_trial, n_channel * n_time))
-    
-    # Regression predictors:
-    # block_nr (to control for time on task and order effects)
-    # "sequence_nr" (to capture effects of deadline imminence)
-    # "last_feedback_scaled" (to capture effects of distance to performance target)
-    # "sequence nr" * "last feedback scaled" (to capture interaction of distance to performance target and deadline imminence)
+    X = tf_data.reshape((n_trial, n_channel * n_freqs * n_time))
     
     # Create design matrix
-    y = trialinfo[["block_nr", "sequence_nr", "last_feedback_scaled"]].to_numpy() 
-    
-    # Add interaction as product to design matrix
-    y = np.concatenate((y, np.multiply(trialinfo[["sequence_nr"]].to_numpy(), trialinfo[["last_feedback_scaled"]].to_numpy())), axis=1)
+    y = trialinfo[["trial_nr_total",          # Control for time on task
+                   "trial_nr",                # Control fer effects within sequence
+                   "sequence_difficulty",     # Control for possible confound with difficulty
+                   "sequence_nr",             # Time left until deadline
+                   "last_feedback_scaled",    # Performance in relation to target
+                   ]].to_numpy() 
     
     # A scaler
     scaler = sklearn.preprocessing.StandardScaler()
@@ -83,9 +95,11 @@ for dataset in datasets:
     X = scaler.fit_transform(X)
     y = scaler.fit_transform(y)
     
+    # Add interaction as product to design matrix
+    y = np.concatenate((y, np.multiply(trialinfo[["sequence_nr"]].to_numpy(), trialinfo[["last_feedback_scaled"]].to_numpy())), axis=1)
     
     # A regressor
-    regr = sklearn.linear_model.LinearRegression()
+    regr = sklearn.linear_model.ElasticNet()
     
     # Fit regressor
     regr.fit(X, y)
@@ -94,14 +108,14 @@ for dataset in datasets:
     coef = regr.coef_
     
     # Re-reshape coefs to 3d
-    coef_block_nr = coef[0, :].reshape((n_channel, n_time))
-    coef_sequence_nr = coef[1, :].reshape((n_channel, n_time))
-    coef_last_feedback_scaled = coef[2, :].reshape((n_channel, n_time))
-    coef_interaction_feedback_sequence = coef[3, :].reshape((n_channel, n_time))
-    
-    # TODO: Scaler, Regression, re-reshape, cluster permutation test against zero.
-    
+    coefs_time_left.append(coef[3, :].reshape((n_channel, n_freqs, n_time)))
+    coefs_feedback.append(coef[4, :].reshape((n_channel, n_freqs, n_time)))
+    coefs_interaction.append(coef[5, :].reshape((n_channel, n_freqs, n_time)))
 
-    
-    
+
     aa=bb
+    plt_data = np.stack(coefs_interaction).mean(axis=0)[64, :, :]
+    plt.contourf(tf_times, tf_freqs, plt_data, vmin = -0.001, vmax = 0.001)
+    plt.colorbar()
+
+

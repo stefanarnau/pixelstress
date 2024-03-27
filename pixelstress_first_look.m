@@ -121,17 +121,17 @@ for s = 1 : length(subject_list)
     group_idx(s) = EEG.trialinfo.session_condition(1);
 
     % Get trial idx
-    idx_close_hi_earl = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr <= 4;
-    idx_close_lo_earl = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr <= 4;
-    idx_clear_hi_earl = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr <= 4;
-    idx_clear_lo_earl = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr <= 4;
-    idx_close_hi_late = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr >= 9;
-    idx_close_lo_late = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr >= 9;
-    idx_clear_hi_late = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr >= 9;
-    idx_clear_lo_late = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr >= 9;
+    idx_close_hi_earl = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr <= 3;
+    idx_close_lo_earl = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr <= 3;
+    idx_clear_hi_earl = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr <= 3;
+    idx_clear_lo_earl = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr <= 3;
+    idx_close_hi_late = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr >= 10;
+    idx_close_lo_late = EEG.trialinfo.block_wiggleroom == 0 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr >= 10;
+    idx_clear_hi_late = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1  & EEG.trialinfo.sequence_nr >= 10;
+    idx_clear_lo_late = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1 & EEG.trialinfo.sequence_nr >= 10;
 
     % Channel idx
-    chan_idx = [9, 10, 65];
+    chan_idx = [61, 62, 63];
 
     % Get ERP
     erp_frontal(s, 1, :) = squeeze(mean(EEG.data(chan_idx, :, idx_close_hi_earl), [1, 3]))';
@@ -210,7 +210,47 @@ for s = 1 : length(subject_list)
 
 end
 
-aa = bb
+
+ersp_frontal_theta_exp =  squeeze(mean(squeeze(mean(ersp_frontal(group_idx == 1, :, tf_freqs >= 8 & tf_freqs <= 12, :), 1)), 2));
+ersp_frontal_theta_cnt =  squeeze(mean(squeeze(mean(ersp_frontal(group_idx == 2, :, tf_freqs >= 8 & tf_freqs <= 12, :), 1)), 2));
+
+figure()
+plot(tf_times, ersp_frontal_theta_exp(1, :), 'k:', 'LineWidth', 1.5)
+hold on
+plot(tf_times, ersp_frontal_theta_exp(2, :), 'b:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(3, :), 'r:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(4, :), 'g:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(5, :), 'k', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(6, :), 'b', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(7, :), 'r', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_exp(8, :), 'g', 'LineWidth', 1.5)
+legend({'close hi early', 'close lo early', 'clear hi early', 'clear lo early', 'close hi late', 'close lo late', 'clear hi late', 'clear lo late'})
+title('EXP')
+
+figure()
+plot(tf_times, ersp_frontal_theta_cnt(1, :), 'k:', 'LineWidth', 1.5)
+hold on
+plot(tf_times, ersp_frontal_theta_cnt(2, :), 'b:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(3, :), 'r:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(4, :), 'g:', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(5, :), 'k', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(6, :), 'b', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(7, :), 'r', 'LineWidth', 1.5)
+plot(tf_times, ersp_frontal_theta_cnt(8, :), 'g', 'LineWidth', 1.5)
+legend({'close hi early', 'close lo early', 'clear hi early', 'clear lo early', 'close hi late', 'close lo late', 'clear hi late', 'clear lo late'})
+title('CNT')
+
+
+
+
+
+
+
+
+aa=bb
+
+
+
 
 
 ersp_frontal_exp =  squeeze(mean(ersp_frontal(group_idx == 1, :, :, :), 1));
@@ -259,7 +299,7 @@ contourf(tf_times, tf_freqs, pd, 40, 'linecolor','none')
 colormap(cmap)
 set(gca, 'clim', clims, 'YScale', 'lin', 'YTick', [4, 8, 12, 20])
 colorbar;
-title('close hi early', 'FontSize', 10)
+title('close hi late', 'FontSize', 10)
 
 subplot(2, 4, 6)
 pd = squeeze(ersp_frontal_exp(6, :, :));
@@ -267,7 +307,7 @@ contourf(tf_times, tf_freqs, pd, 40, 'linecolor','none')
 colormap(cmap)
 set(gca, 'clim', clims, 'YScale', 'lin', 'YTick', [4, 8, 12, 20])
 colorbar;
-title('close lo early', 'FontSize', 10)
+title('close lo late', 'FontSize', 10)
 
 subplot(2, 4, 7)
 pd = squeeze(ersp_frontal_exp(7, :, :));
@@ -275,7 +315,7 @@ contourf(tf_times, tf_freqs, pd, 40, 'linecolor','none')
 colormap(cmap)
 set(gca, 'clim', clims, 'YScale', 'lin', 'YTick', [4, 8, 12, 20])
 colorbar;
-title('clear hi early', 'FontSize', 10)
+title('clear hi late', 'FontSize', 10)
 
 subplot(2, 4, 8)
 pd = squeeze(ersp_frontal_exp(8, :, :));
@@ -283,7 +323,7 @@ contourf(tf_times, tf_freqs, pd, 40, 'linecolor','none')
 colormap(cmap)
 set(gca, 'clim', clims, 'YScale', 'lin', 'YTick', [4, 8, 12, 20])
 colorbar;
-title('clear lo early', 'FontSize', 10)
+title('clear lo late', 'FontSize', 10)
 
 
 

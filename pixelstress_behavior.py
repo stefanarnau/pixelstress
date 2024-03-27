@@ -61,26 +61,6 @@ df_b["group"] = df_b["group"].astype("category")
 df_b["outcome"] = df_b["outcome"].astype("category")
 df_b["dist"] = df_b["dist"].astype("category")
 
-# Remove start timepoints
-df_b = df_b.drop(df_b[df_b.time == "begin"].index)
-
-# Plot RT
-g = sns.FacetGrid(df_b, col="dist", hue="outcome")
-g.map(sns.pointplot, "group", "rt")
-g.add_legend()
-
-# Plot acc
-g = sns.FacetGrid(df_b, col="dist", hue="outcome")
-g.map(sns.pointplot, "group", "acc")
-g.add_legend()
-
-# Plot ie
-g = sns.FacetGrid(df_b, col="dist", hue="outcome")
-g.map(sns.pointplot, "group", "ie")
-g.add_legend()
-
-
-
 # Plot RT
 g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
 g.map(sns.pointplot, "time", "rt")
