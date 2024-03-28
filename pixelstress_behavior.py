@@ -25,11 +25,11 @@ df = pd.read_csv(os.path.join(path_in, "behavior_all_tf.csv"))
 
 # Add new variable block_phase
 df = df.assign(block_phase="middle")
-df.block_phase[df.sequence_nr <= 4] = "begin"
-df.block_phase[df.sequence_nr >= 9] = "end"
+df.block_phase[df.sequence_nr <= 6] = "begin"
+df.block_phase[df.sequence_nr >= 7] = "end"
 
-# Drop 'middle' trials
-df = df.drop(df[df.block_phase == "middle"].index)
+# Drop non-end trials
+df = df.drop(df[df.block_phase != "end"].index)
 
 # Create df for correct only
 df_correct_only = df.drop(df[df.accuracy != 1].index)
@@ -62,18 +62,18 @@ df_b["outcome"] = df_b["outcome"].astype("category")
 df_b["dist"] = df_b["dist"].astype("category")
 
 # Plot RT
-g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
-g.map(sns.pointplot, "time", "rt")
+g = sns.FacetGrid(df_b, col="group", hue="dist")
+g.map(sns.pointplot, "outcome", "rt")
 g.add_legend()
 
 # Plot accuracy
-g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
-g.map(sns.pointplot, "time", "acc")
+g = sns.FacetGrid(df_b, col="group", hue="dist")
+g.map(sns.pointplot, "outcome", "acc")
 g.add_legend()
 
 # Plot inverse efficiency
-g = sns.FacetGrid(df_b, row="outcome", col="dist", hue="group")
-g.map(sns.pointplot, "time", "ie")
+g = sns.FacetGrid(df_b, col="group", hue="dist")
+g.map(sns.pointplot, "outcome", "ie")
 g.add_legend()
 
 # Save to csv for R
