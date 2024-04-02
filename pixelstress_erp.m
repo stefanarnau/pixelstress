@@ -3,6 +3,7 @@ clear all;
 % PATH VARS
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
+PATH_OUT = '/mnt/data_dump/pixelstress/3_behavior/';
 
 % List of preprocessed datasets
 subject_list = {'2_2',...
@@ -85,8 +86,6 @@ end
 erps_exp =  squeeze(mean(erps(group_idx == 1, :, :, :), 1));
 erps_cnt =  squeeze(mean(erps(group_idx == 2, :, :, :), 1));
 
-
-
 % Set topo times
 idx_topo_times = erp_times >= -500 & erp_times <= 0;
 topo_clim = [-3, 3];
@@ -145,10 +144,10 @@ colormap('jet')
 set(gca, 'clim', topo_clim)
 title('cnt clear lo')
 
-
-
 % Average frontal erp
-idx_frontal = [9, 10, 65, 13, 14, 15];
+idx_frontal = [9, 10, 65];
+idx_frontal = [48, 49, 14];
+idx_frontal = [20, 53, 19, 48, 49, 14, 9, 10, 65];
 erp_frontal_exp = squeeze(mean(erps_exp(:, idx_frontal, :), 2));
 erp_frontal_cnt = squeeze(mean(erps_cnt(:, idx_frontal, :), 2));
 
@@ -174,3 +173,26 @@ ylim([-4, 2])
 grid on
 legend({'close hi', 'close lo', 'clear hi', 'clear lo'})
 title('CNT')
+
+% Create result table
+cnv_table = [];
+idx_time = erp_times >= -500 & erp_times <= 0;
+tmp = squeeze(mean(erps(:, :, idx_frontal, idx_time), [3, 4]));
+
+% Loop subjects
+counter = 0;
+for s = 1 : length(subject_list)
+
+    % Loop within conditions
+    for wthcnd = 1 : 4
+
+        % Fill
+        counter = counter + 1;
+        cnv_table(counter, :) = [str2double(subject_list{s}(1 : end - 2)), group_idx(s), wthcnd <= 2, mod(wthcnd, 2), tmp(s, wthcnd)];
+
+    end
+
+end
+
+cnv_table = array2table(cnv_table, 'VariableNames', {'id', 'group', 'dist', 'outcome', 'cnv_amp'});
+writetable(cnv_table, [PATH_OUT, 'cnv_table.csv']);
