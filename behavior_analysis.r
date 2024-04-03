@@ -18,8 +18,7 @@ df_behavior$dist <- factor(df_behavior$dist)
 df_behavior$outcome <- factor(df_behavior$outcome)
 df_behavior$group <- factor(df_behavior$group)
 df_cnv$id <- factor(df_cnv$id)
-df_cnv$dist <- factor(df_cnv$dist)
-df_cnv$outcome <- factor(df_cnv$outcome)
+df_cnv$trajectory <- factor(df_cnv$trajectory)
 df_cnv$group <- factor(df_cnv$group)
 
 # Compute Shapiro-Wilk test for each combinations of factor levels
@@ -47,5 +46,5 @@ aov_ie <- anova_test(
 )
 aov_cnv <- anova_test(
   data = df_cnv, dv = cnv_amp, wid = id,
-  between = group, within = c(dist, outcome)
+  between = group, within = trajectory
 )
