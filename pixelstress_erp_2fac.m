@@ -39,6 +39,9 @@ subject_list = {'2_2',...
                 '37_2',...
                 '38_1',...
                 '39_2',...
+                '40_1',...
+                '41_2',...
+                '42_2',...
                };
 
 % Init eeglab
@@ -68,9 +71,9 @@ for s = 1 : length(subject_list)
     group_idx(s) = EEG.trialinfo.session_condition(1);
 
     % Get trial idx
-    idx_close = EEG.trialinfo.sequence_nr >= 9 & EEG.trialinfo.block_wiggleroom == 0;
-    idx_below = EEG.trialinfo.sequence_nr >= 9 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
-    idx_above = EEG.trialinfo.sequence_nr >= 9 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1 ;
+    idx_close = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 0;
+    idx_below = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
+    idx_above = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1 ;
 
     % Get ERP
     erps(s, 1, :, :) = squeeze(mean(EEG.data(:, :, idx_close), 3));
@@ -79,6 +82,11 @@ for s = 1 : length(subject_list)
     erp_times = EEG.times;
 
 end
+
+% Crop in time
+time_idx = EEG.times >= -1200 & EEG.times <= 500;
+erp_times = EEG.times(time_idx);
+erps = erps(:, :, :, time_idx);
 
 % Build elec struct
 elec = struct();
@@ -126,17 +134,118 @@ cfg.keepindividual = 'yes';
 GA_above = ft_timelockgrandaverage(cfg, D{1, :});
 
 % Build GA for group comparison
+counter_1 = 0;
+counter_2 = 0;
+D1 = {};
+D2 = {};
 for s = 1 : length(subject_list)
-    d = [];
-    d.dimord = 'chan_time';
-    d.label = elec.label;
-    d.time = erp_times;
-    d.avg = squeeze(mean(erps(s, :, :, :), 2));
-    D{s} = d;
+    if group_idx(s) == 1
+        counter_1 = counter_1 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(mean(erps(s, :, :, :), 2));
+        D1{counter_1} = d;
+    elseif group_idx(s) == 2
+        counter_2 = counter_2 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(mean(erps(s, :, :, :), 2));
+        D2{counter_2} = d;
+    end
 end
 cfg=[];
 cfg.keepindividual = 'yes';
-GA_all = ft_timelockgrandaverage(cfg, D{1, :});
+GA_group1 = ft_timelockgrandaverage(cfg, D1{1, :});
+GA_group2 = ft_timelockgrandaverage(cfg, D2{1, :});
+
+% Build GA for condition differences within groups
+counter_1 = 0;
+counter_2 = 0;
+D1 = {};
+D2 = {};
+for s = 1 : length(subject_list)
+    if group_idx(s) == 1
+        counter_1 = counter_1 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 2, :, :));
+        D1{counter_1} = d;
+    elseif group_idx(s) == 2
+        counter_2 = counter_2 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 2, :, :));
+        D2{counter_2} = d;
+    end
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_group1_close_below = ft_timelockgrandaverage(cfg, D1{1, :});
+GA_group2_close_below = ft_timelockgrandaverage(cfg, D2{1, :});
+
+counter_1 = 0;
+counter_2 = 0;
+D1 = {};
+D2 = {};
+for s = 1 : length(subject_list)
+    if group_idx(s) == 1
+        counter_1 = counter_1 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 2, :, :)) - squeeze(erps(s, 3, :, :));
+        D1{counter_1} = d;
+    elseif group_idx(s) == 2
+        counter_2 = counter_2 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 2, :, :)) - squeeze(erps(s, 3, :, :));
+        D2{counter_2} = d;
+    end
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_group1_below_above = ft_timelockgrandaverage(cfg, D1{1, :});
+GA_group2_below_above = ft_timelockgrandaverage(cfg, D2{1, :});
+
+counter_1 = 0;
+counter_2 = 0;
+D1 = {};
+D2 = {};
+for s = 1 : length(subject_list)
+    if group_idx(s) == 1
+        counter_1 = counter_1 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 3, :, :));
+        D1{counter_1} = d;
+    elseif group_idx(s) == 2
+        counter_2 = counter_2 + 1;
+        d = [];
+        d.dimord = 'chan_time';
+        d.label = elec.label;
+        d.time = erp_times;
+        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 3, :, :));
+        D2{counter_2} = d;
+    end
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_group1_close_above = ft_timelockgrandaverage(cfg, D1{1, :});
+GA_group2_close_above = ft_timelockgrandaverage(cfg, D2{1, :});
 
 % Prepare layout
 cfg      = [];
@@ -149,7 +258,7 @@ cfg                 = [];
 cfg.layout          = layout;
 cfg.feedback        = 'no';
 cfg.method          = 'triangulation'; 
-cfg.neighbours      = ft_prepare_neighbours(cfg, GA_all);
+cfg.neighbours      = ft_prepare_neighbours(cfg, GA_above);
 neighbours = cfg.neighbours;
 
 % Testparams
@@ -186,7 +295,7 @@ cfg.design = design;
 
 % Set config for between test
 cfg = [];
-cfg.tail             = 1;
+cfg.tail             = 0;
 cfg.statistic        = 'indepsamplesT';
 cfg.alpha            = testalpha;
 cfg.neighbours       = neighbours;
@@ -199,48 +308,103 @@ cfg.clusterstatistic = 'maxsum';
 cfg.numrandomization = nperm;
 cfg.computecritval   = 'yes'; 
 cfg.ivar             = 1;
-cfg.uvar             = 2;
 
 % Set up design
-n_subjects = length(subject_list);
-design = zeros(2, n_subjects);
-design(1, :) = group_idx;
-design(2, :) = 1 : n_subjects;
-cfg.design = design;
+cfg.design = group_idx;
 
-% The test
-[stat_group]  = ft_timelockstatistics(cfg, GA_all);
-
-
-
-
+% The tests
+[stat_group]  = ft_timelockstatistics(cfg, GA_group1, GA_group2);
+[stat_interaction1]  = ft_timelockstatistics(cfg, GA_group1_close_below, GA_group2_close_below);
+[stat_interaction2]  = ft_timelockstatistics(cfg, GA_group1_below_above, GA_group2_below_above);
+[stat_interaction3]  = ft_timelockstatistics(cfg, GA_group1_close_above, GA_group2_close_above);
 
 % Save masks
 dlmwrite([PATH_OUT, 'contour_trajectory.csv'], stat_traject.mask);
-
+dlmwrite([PATH_OUT, 'contour_group.csv'], stat_group.mask);
+dlmwrite([PATH_OUT, 'contour_interaction1.csv'], stat_interaction1.mask);
+dlmwrite([PATH_OUT, 'contour_interaction2.csv'], stat_interaction2.mask);
+dlmwrite([PATH_OUT, 'contour_interaction3.csv'], stat_interaction3.mask);
 
 % Calculate effect sizes
 n_chans = numel(EEG.chanlocs);
-apes_trajectory  = [];
-df_effect = 1;
+apes_trajectory = [];
+apes_group = [];
+apes_interaction1 = [];
+apes_interaction2 = [];
+apes_interaction3 = [];
+
 for ch = 1 : n_chans
+
+    df_effect = 2;
     petasq = (squeeze(stat_traject.stat(ch, :)) * df_effect) ./ ((squeeze(stat_traject.stat(ch, :)) * df_effect) + (n_subjects - 1));
     apes_trajectory(ch, :) = petasq - (1 - petasq) .* (df_effect / (n_subjects - 1));
+
+    df_effect = 1;
+    petasq = (squeeze(stat_group.stat(ch, :)) * df_effect) ./ ((squeeze(stat_group.stat(ch, :)) * df_effect) + (n_subjects - 1));
+    apes_group(ch, :) = petasq - (1 - petasq) .* (df_effect / (n_subjects - 2));
+
+    df_effect = 1;
+    petasq = (squeeze(stat_interaction1.stat(ch, :)) * df_effect) ./ ((squeeze(stat_interaction1.stat(ch, :)) * df_effect) + (n_subjects - 1));
+    apes_interaction1(ch, :) = petasq - (1 - petasq) .* (df_effect / (n_subjects - 2));
+
+    df_effect = 1;
+    petasq = (squeeze(stat_interaction2.stat(ch, :)) * df_effect) ./ ((squeeze(stat_interaction2.stat(ch, :)) * df_effect) + (n_subjects - 1));
+    apes_interaction2(ch, :) = petasq - (1 - petasq) .* (df_effect / (n_subjects - 2));
+
+    df_effect = 1;
+    petasq = (squeeze(stat_interaction3.stat(ch, :)) * df_effect) ./ ((squeeze(stat_interaction3.stat(ch, :)) * df_effect) + (n_subjects - 1));
+    apes_interaction3(ch, :) = petasq - (1 - petasq) .* (df_effect / (n_subjects - 2));
 
 end
 
 % Save effect sizes
 dlmwrite([PATH_OUT, 'apes_trajectory.csv'], apes_trajectory);
+dlmwrite([PATH_OUT, 'apes_trajectory.csv'], apes_group);
+dlmwrite([PATH_OUT, 'apes_interaction1.csv'], apes_interaction1);
+dlmwrite([PATH_OUT, 'apes_interaction2.csv'], apes_interaction2);
+dlmwrite([PATH_OUT, 'apes_interaction3.csv'], apes_interaction3);
 
 % Plot masks
 figure()
-subplot(2, 2, 1)
+subplot(2, 3, 1)
 contourf(erp_times,[1:65], apes_trajectory, 50, 'LineColor', 'none')
 caxis([-0.5, 0.5])
 colormap(jet)
 hold on
 contour(erp_times,[1:65], stat_traject.mask, 'levels', 1, 'LineColor', 'k', 'LineWidth', 1.5)
 title('trajectory')
+
+subplot(2, 3, 2)
+contourf(erp_times,[1:65], apes_group, 50, 'LineColor', 'none')
+caxis([-0.5, 0.5])
+colormap(jet)
+hold on
+contour(erp_times,[1:65], stat_group.mask, 'levels', 1, 'LineColor', 'k', 'LineWidth', 1.5)
+title('group')
+
+subplot(2, 3, 3)
+contourf(erp_times,[1:65], apes_interaction1, 50, 'LineColor', 'none')
+caxis([-0.5, 0.5])
+colormap(jet)
+hold on
+contour(erp_times,[1:65], stat_interaction1.mask, 'levels', 1, 'LineColor', 'k', 'LineWidth', 1.5)
+title('interaction1')
+
+subplot(2, 3, 4)
+contourf(erp_times,[1:65], apes_interaction2, 50, 'LineColor', 'none')
+caxis([-0.5, 0.5])
+colormap(jet)
+hold on
+contour(erp_times,[1:65], stat_interaction2.mask, 'levels', 1, 'LineColor', 'k', 'LineWidth', 1.5)
+title('interaction2')
+
+subplot(2, 3, 5)
+contourf(erp_times,[1:65], apes_interaction3, 50, 'LineColor', 'none')
+caxis([-0.5, 0.5])
+colormap(jet)
+hold on
+contour(erp_times,[1:65], stat_interaction3.mask, 'levels', 1, 'LineColor', 'k', 'LineWidth', 1.5)
+title('interaction3')
 
 aa = bb
 
