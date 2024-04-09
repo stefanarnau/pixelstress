@@ -28,6 +28,12 @@ df = df.assign(block_phase="middle")
 df.block_phase[df.sequence_nr <= 6] = "begin"
 df.block_phase[df.sequence_nr >= 7] = "end"
 
+# Add new variable trajectory
+df = df.assign(trajectory="none")
+df.trajectory[df.block_wiggleroom == 0] = "close"
+df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
+df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "above"
+
 # Drop non-end trials
 df = df.drop(df[df.block_phase != "end"].index)
 
@@ -35,15 +41,15 @@ df = df.drop(df[df.block_phase != "end"].index)
 df_correct_only = df.drop(df[df.accuracy != 1].index)
 
 # Get rt for conditions
-df_b = df_correct_only.groupby(["id", "block_phase", "block_wiggleroom", "block_outcome"])["rt"].mean().reset_index(name='rt')
+df_b = df_correct_only.groupby(["id", "trajectory"])["rt"].mean().reset_index(name='rt')
 
 # Get accuracy for conditions
-series_n_all = df.groupby(["id", "block_phase", "block_wiggleroom", "block_outcome"]).size().reset_index(name='acc')["acc"]
-series_n_correct = df_correct_only.groupby(["id", "block_phase", "block_wiggleroom", "block_outcome"]).size().reset_index(name='acc')["acc"]
+series_n_all = df.groupby(["id", "trajectory"]).size().reset_index(name='acc')["acc"]
+series_n_correct = df_correct_only.groupby(["id", "trajectory"]).size().reset_index(name='acc')["acc"]
 series_accuracy = series_n_correct / series_n_all
 
 # Get session condition for conditions
-series_session = df.groupby(["id", "block_phase", "block_wiggleroom", "block_outcome"])["session_condition"].mean().reset_index(name='session')["session"]
+series_session = df.groupby(["id", "trajectory"])["session_condition"].mean().reset_index(name='session')["session"]
 
 # Compute inverse efficiency
 series_ie = df_b["rt"] / series_accuracy
@@ -53,34 +59,19 @@ df_b["acc"] = series_accuracy
 df_b["group"] = series_session
 df_b["ie"] = series_ie
 
-# Rename vars
-df_b = df_b.rename(columns={"block_phase": "time", "block_wiggleroom": "dist", "block_outcome": "outcome"})
-
 # Make vars categorial
 df_b["group"] = df_b["group"].astype("category")
-df_b["outcome"] = df_b["outcome"].astype("category")
-df_b["dist"] = df_b["dist"].astype("category")
+df_b["trajectory"] = df_b["trajectory"].astype("category")
 
 # Plot RT
-g = sns.FacetGrid(df_b, col="group", hue="dist")
-g.map(sns.pointplot, "outcome", "rt")
-g.add_legend()
+sns.pointplot(data=df_b, x="trajectory", y="rt", hue="group")
 
 # Plot accuracy
-g = sns.FacetGrid(df_b, col="group", hue="dist")
-g.map(sns.pointplot, "outcome", "acc")
-g.add_legend()
+sns.pointplot(data=df_b, x="trajectory", y="acc", hue="group")
 
-# Plot inverse efficiency
-g = sns.FacetGrid(df_b, col="group", hue="dist")
-g.map(sns.pointplot, "outcome", "ie")
-g.add_legend()
-
-# Save to csv for R
-fn = os.path.join(path_in, "pixelstress_behavioral_data.csv")
-df_b.to_csv(fn, index=False) 
-
-
+# Mixed anova
+aov_rt = pg.mixed_anova(dv='rt', between='group', within='trajectory', subject='id', data=df_b)
+aov_acc = pg.mixed_anova(dv='acc', between='group', within='trajectory', subject='id', data=df_b)
 
 
 
