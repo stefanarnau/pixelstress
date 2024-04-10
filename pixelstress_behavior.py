@@ -16,9 +16,11 @@ import joblib
 import scipy.io
 import seaborn as sns
 import pingouin as pg
+import matplotlib.pyplot as plt 
 
 # Define path
 path_in = "/mnt/data_dump/pixelstress/3_behavior/"
+path_plot = "/mnt/data_dump/pixelstress/plots/"
 
 # Load data
 df = pd.read_csv(os.path.join(path_in, "behavior_all_tf.csv"))
@@ -41,7 +43,7 @@ df = df.drop(df[df.block_phase != "end"].index)
 df_correct_only = df.drop(df[df.accuracy != 1].index)
 
 # Get rt for conditions
-df_b = df_correct_only.groupby(["id", "trajectory"])["rt"].mean().reset_index(name='rt')
+df_b = df_correct_only.groupby(["id", "trajectory"])["rt"].mean().reset_index(name='ms')
 
 # Get accuracy for conditions
 series_n_all = df.groupby(["id", "trajectory"]).size().reset_index(name='acc')["acc"]
@@ -52,25 +54,43 @@ series_accuracy = series_n_correct / series_n_all
 series_session = df.groupby(["id", "trajectory"])["session_condition"].mean().reset_index(name='session')["session"]
 
 # Compute inverse efficiency
-series_ie = df_b["rt"] / series_accuracy
+series_ie = df_b["ms"] / series_accuracy
 
 # Combine
 df_b["acc"] = series_accuracy
 df_b["group"] = series_session
 df_b["ie"] = series_ie
 
+# Rename group vars
+df_b.group[(df_b.group == 1)] = "experimental"
+df_b.group[(df_b.group == 2)] = "control"
+
 # Make vars categorial
 df_b["group"] = df_b["group"].astype("category")
 df_b["trajectory"] = df_b["trajectory"].astype("category")
 
+# Set color palette
+sns.set_palette("husl", 4)
+sns.set_palette("Set2")
+
 # Plot RT
-sns.pointplot(data=df_b, x="trajectory", y="rt", hue="group")
+sns.violinplot(data=df_b, x="trajectory", y="ms", hue="group")
+plt.savefig(
+    os.path.join(path_plot, "rts.svg"),
+    dpi=300,
+    transparent=True,
+)
 
 # Plot accuracy
-sns.pointplot(data=df_b, x="trajectory", y="acc", hue="group")
+sns.violinplot(data=df_b, x="trajectory", y="acc", hue="group")
+plt.savefig(
+    os.path.join(path_plot, "accuracy.svg"),
+    dpi=300,
+    transparent=True,
+)
 
 # Mixed anova
-aov_rt = pg.mixed_anova(dv='rt', between='group', within='trajectory', subject='id', data=df_b)
+aov_rt = pg.mixed_anova(dv='ms', between='group', within='trajectory', subject='id', data=df_b)
 aov_acc = pg.mixed_anova(dv='acc', between='group', within='trajectory', subject='id', data=df_b)
 
 
