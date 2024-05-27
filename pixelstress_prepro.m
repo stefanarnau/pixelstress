@@ -49,15 +49,10 @@ subject_list = {'2_2',...
                 '46_2',...
                 '47_1',...
                 '48_1',...
+                '49_2',...
                };
 
-subject_list = {'43_1',...
-                '44_1',...
-                '45_2',...
-                '46_2',...
-                '47_1',...
-                '48_1',...
-                };
+subject_list = {'49_2'};
 
 % Failed:
 % '13_1' trialcount too low. Notes: Abbruch wegen Kreislaufproblemen.
@@ -155,10 +150,16 @@ for s = 1 : length(subject_list)
         end
     end
 
-    % Check trialcount
-    if trial_nr_total ~= 768
-        fprintf('\n\n\nSOMETHING IS WEIIIRDDD with the trials!!!!!!\n\n\n');
-        pause;
+    % Trigger recording stopped in block 7 for subject 49_2 after trial 672
+    if strcmpi(subject_list{s}, '49_2')
+        CNT = CNT(1 : 672, :);
+    else
+
+        % Check trialcount
+        if trial_nr_total ~= 768
+            fprintf('\n\n\nSOMETHING IS WEIIIRDDD with the trials!!!!!!\n\n\n');
+            pause;
+        end
     end
 
     % Convert trialinfo to table
