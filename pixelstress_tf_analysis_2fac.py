@@ -29,152 +29,13 @@ datasets = glob.glob(f"{path_in}/*tf.set")
 # Create a montage
 standard_1020_montage = mne.channels.make_standard_montage("standard_1020")
 
-
-# Function for plotting erps and calculate stats
-def get_erspplot_and_stats(
-    electrode_selection, freq_selection, stat_label, timewin_stats
-):
-
-    # Get channel indices
-    idx_channel = [
-        idx
-        for idx, element in enumerate(eeg_epochs.ch_names)
-        if element in electrode_selection
-    ]
-    
-    # Get frequency range indices
-    idx_freqs = (tf_freqs >= freq_selection[0]) & (tf_freqs <= freq_selection[1])
-    
-    # A list for dataframe rows
-    df_rows = []
-    
-    # Loop subjects
-    for idx_id, id in enumerate(ids):
-
-        # Loop time points
-        for idx_t, t in enumerate(tf_times):
-
-            # Set stat-flag
-            if (t >= timewin_stats[0]) & (t <= timewin_stats[1]):
-                in_statwin = 1
-            else:
-                in_statwin = 0
-
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "close",
-                    "stage": "early",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_close_early[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "below",
-                    "stage": "early",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_below_early[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "above",
-                    "stage": "early",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_above_early[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "close",
-                    "stage": "late",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_close_late[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "below",
-                    "stage": "late",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_below_late[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-            df_rows.append(
-                {
-                    "id": id,
-                    "group": ["experimental", "control"][group[idx_id] - 1],
-                    "trajectory": "above",
-                    "stage": "late",
-                    "time (s)": erp_times[idx_t],
-                    "in_statwin": in_statwin,
-                    "V": matrices_above_late[idx_id, idx_channel, idx_t].mean(),
-                }
-            )
-
-    # Get dataframe
-    df_frontal_erp = pd.DataFrame(df_rows)
-
-    # Create ERP Lineplot
-    sns.set_style("darkgrid")
-    sns.relplot(
-        data=df_frontal_erp,
-        x="time (s)",
-        y="V",
-        hue="trajectory",
-        col="stage",
-        row="group",
-        kind="line",
-        height=3,
-        aspect=1.8,
-        errorbar=None,
-        palette="rocket",
-    )
-
-    # Save plot
-    plt.savefig(
-        os.path.join(path_plot, "lineplot_" + stat_label + ".png"),
-        dpi=300,
-        transparent=True,
-    )
-
-    # Get dataframe statistical analysis (average is timewin)
-    df_stats = df_frontal_erp.drop(df_frontal_erp[df_frontal_erp.in_statwin != 1].index)
-    df_stats = (
-        df_stats.groupby(["id", "group", "trajectory", "stage"])["V"]
-        .mean()
-        .reset_index()
-    )
-
-    # Save dataframe
-    df_stats.to_csv(os.path.join(path_stats, "stats_table_" + stat_label + ".csv"))
-
-    # Return stat dataframe
-    return df_stats
-
-
 # Collector lists
-matrices_close_early = []
-matrices_below_early = []
-matrices_above_early = []
-matrices_close_late = []
-matrices_below_late = []
-matrices_above_late = []
+ersps_close = []
+ersps_below = []
+ersps_above = []
+ersps_matrices_close = []
+ersps_matrices_below = []
+ersps_matrices_above = []
 group = []
 ids = []
 
@@ -187,49 +48,42 @@ for dataset in datasets:
     # Load a dataset
     eeg_epochs = mne.io.read_epochs_eeglab(dataset).apply_baseline(baseline=(-1.2, -1))
 
+    # Set montage
+    eeg_epochs.set_montage(standard_1020_montage)
+
     # Load trialinfo
     trialinfo = pd.read_csv(dataset.split("cleaned_")[0] + "tf_trialinfo.csv")
 
-    # Save group
-    group.append(trialinfo.session_condition[0])
+    # Get trial indices of conditions
+    idx_close = np.where(
+        (trialinfo.sequence_nr >= 7) & (trialinfo.block_wiggleroom == 0)
+    )[0]
+    idx_below = np.where(
+        (trialinfo.sequence_nr >= 7)
+        & (trialinfo.block_wiggleroom == 1)
+        & (trialinfo.block_outcome == -1)
+    )[0]
+    idx_above = np.where(
+        (trialinfo.sequence_nr >= 7)
+        & (trialinfo.block_wiggleroom == 1)
+        & (trialinfo.block_outcome == 1)
+    )[0]
 
-    # Get trial indices
-    early_sequences = 5
-    late_sequences = 8
-    idx_close_early = np.where(
-        (trialinfo.sequence_nr < early_sequences) & (trialinfo.block_wiggleroom == 0)
-    )[0]
-    idx_below_early = np.where(
-        (trialinfo.sequence_nr < early_sequences)
-        & (trialinfo.block_wiggleroom == 1)
-        & (trialinfo.block_outcome == -1)
-    )[0]
-    idx_above_early = np.where(
-        (trialinfo.sequence_nr < early_sequences)
-        & (trialinfo.block_wiggleroom == 1)
-        & (trialinfo.block_outcome == 1)
-    )[0]
-    idx_close_late = np.where(
-        (trialinfo.sequence_nr > late_sequences) & (trialinfo.block_wiggleroom == 0)
-    )[0]
-    idx_below_late = np.where(
-        (trialinfo.sequence_nr > late_sequences)
-        & (trialinfo.block_wiggleroom == 1)
-        & (trialinfo.block_outcome == -1)
-    )[0]
-    idx_above_late = np.where(
-        (trialinfo.sequence_nr > late_sequences)
-        & (trialinfo.block_wiggleroom == 1)
-        & (trialinfo.block_outcome == 1)
-    )[0]
+    # Random downsample trials
+    min_n = np.min([len(idx_close), len(idx_above), len(idx_below)])
+
+    # Get condition epochs
+    epochs_close = eeg_epochs[idx_close]
+    epochs_below = eeg_epochs[idx_below]
+    epochs_above = eeg_epochs[idx_above]
 
     # Perform time-frequency decomposition
     n_freqs = 25
     tf_freqs = np.linspace(3, 20, n_freqs)
     tf_cycles = np.linspace(6, 12, n_freqs)
 
-    ersp_close_early = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_close_early],
+    ersp_close = mne.time_frequency.tfr_morlet(
+        epochs_close,
         tf_freqs,
         n_cycles=tf_cycles,
         average=True,
@@ -237,8 +91,9 @@ for dataset in datasets:
         n_jobs=-2,
         decim=2,
     )
-    ersp_below_early = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_below_early],
+
+    ersp_below = mne.time_frequency.tfr_morlet(
+        epochs_below,
         tf_freqs,
         n_cycles=tf_cycles,
         average=True,
@@ -246,35 +101,9 @@ for dataset in datasets:
         n_jobs=-2,
         decim=2,
     )
-    ersp_above_early = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_above_early],
-        tf_freqs,
-        n_cycles=tf_cycles,
-        average=True,
-        return_itc=False,
-        n_jobs=-2,
-        decim=2,
-    )
-    ersp_close_late = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_close_late],
-        tf_freqs,
-        n_cycles=tf_cycles,
-        average=True,
-        return_itc=False,
-        n_jobs=-2,
-        decim=2,
-    )
-    ersp_below_late = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_below_late],
-        tf_freqs,
-        n_cycles=tf_cycles,
-        average=True,
-        return_itc=False,
-        n_jobs=-2,
-        decim=2,
-    )
-    ersp_above_late = mne.time_frequency.tfr_morlet(
-        eeg_epochs[idx_above_late],
+
+    ersp_above = mne.time_frequency.tfr_morlet(
+        epochs_above,
         tf_freqs,
         n_cycles=tf_cycles,
         average=True,
@@ -284,82 +113,94 @@ for dataset in datasets:
     )
 
     # Get baseline indices
-    idx_bl = (ersp_close_early.times >= -1.5) & (ersp_close_early.times <= -1.2)
+    idx_bl = (ersp_close.times >= -1.5) & (ersp_close.times <= -1.2)
 
     # Average baseline values
-    bl_values = (
-        ersp_close_early._data
-        + ersp_below_early._data
-        + ersp_above_early._data
-        + ersp_close_late._data
-        + ersp_below_late._data
-        + ersp_above_late._data
-    ) / 3
+    bl_values = (ersp_close._data + ersp_below._data + ersp_above._data) / 3
     bl_values = bl_values[:, :, idx_bl].mean(axis=2)
 
     # Apply condition general dB baseline
     for ch in range(bl_values.shape[0]):
         for fr in range(bl_values.shape[1]):
-            ersp_close_early._data[ch, fr, :] = 10 * np.log10(
-                ersp_close_early._data[ch, fr, :].copy() / bl_values[ch, fr]
+            ersp_close._data[ch, fr, :] = 10 * np.log10(
+                ersp_close._data[ch, fr, :].copy() / bl_values[ch, fr]
             )
-            ersp_below_early._data[ch, fr, :] = 10 * np.log10(
-                ersp_below_early._data[ch, fr, :].copy() / bl_values[ch, fr]
+            ersp_below._data[ch, fr, :] = 10 * np.log10(
+                ersp_below._data[ch, fr, :].copy() / bl_values[ch, fr]
             )
-            ersp_above_early._data[ch, fr, :] = 10 * np.log10(
-                ersp_above_early._data[ch, fr, :].copy() / bl_values[ch, fr]
-            )
-            ersp_close_late._data[ch, fr, :] = 10 * np.log10(
-                ersp_close_late._data[ch, fr, :].copy() / bl_values[ch, fr]
-            )
-            ersp_below_late._data[ch, fr, :] = 10 * np.log10(
-                ersp_below_late._data[ch, fr, :].copy() / bl_values[ch, fr]
-            )
-            ersp_above_late._data[ch, fr, :] = 10 * np.log10(
-                ersp_above_late._data[ch, fr, :].copy() / bl_values[ch, fr]
+            ersp_above._data[ch, fr, :] = 10 * np.log10(
+                ersp_above._data[ch, fr, :].copy() / bl_values[ch, fr]
             )
 
-    # Crop
-    ersp_close_early.crop(tmin=-1.5, tmax=1)
-    ersp_below_early.crop(tmin=-1.5, tmax=1)
-    ersp_above_early.crop(tmin=-1.5, tmax=1)
-    ersp_close_late.crop(tmin=-1.5, tmax=1)
-    ersp_below_late.crop(tmin=-1.5, tmax=1)
-    ersp_above_late.crop(tmin=-1.5, tmax=1)
+    # Apply baseline and crop
+    ersp_close.crop(tmin=-1.5, tmax=1)
+    ersp_below.crop(tmin=-1.5, tmax=1)
+    ersp_above.crop(tmin=-1.5, tmax=1)
 
-    # Save times and freqs
-    tf_times = ersp_close_early.times
-    tf_freqs = ersp_close_early.freqs
+    # Collect
+    ersps_close.append(ersp_close)
+    ersps_below.append(ersp_below)
+    ersps_above.append(ersp_above)
+    group.append(trialinfo.session_condition[0])
 
     # Collect as matrices
-    matrices_close_early.append(np.transpose(ersp_close_early.data, (2, 1, 0)))
-    matrices_below_early.append(np.transpose(ersp_below_early.data, (2, 1, 0)))
-    matrices_above_early.append(np.transpose(ersp_above_early.data, (2, 1, 0)))
-    matrices_close_late.append(np.transpose(ersp_close_late.data, (2, 1, 0)))
-    matrices_below_late.append(np.transpose(ersp_below_late.data, (2, 1, 0)))
-    matrices_above_late.append(np.transpose(ersp_above_late.data, (2, 1, 0)))
+    ersps_matrices_close.append(np.transpose(ersp_close.data, (2, 1, 0)))
+    ersps_matrices_below.append(np.transpose(ersp_below.data, (2, 1, 0)))
+    ersps_matrices_above.append(np.transpose(ersp_above.data, (2, 1, 0)))
 
 # Stack matrices
-matrices_close_early = np.stack(matrices_close_early)
-matrices_below_early = np.stack(matrices_below_early)
-matrices_above_early = np.stack(matrices_above_early)
-matrices_close_late = np.stack(matrices_close_late)
-matrices_below_late = np.stack(matrices_below_late)
-matrices_above_late = np.stack(matrices_above_late)
+ersps_matrices_close = np.stack(ersps_matrices_close)
+ersps_matrices_below = np.stack(ersps_matrices_below)
+ersps_matrices_above = np.stack(ersps_matrices_above)
 
-# Get ERSP for Fz
-df_stats_Fz = get_erspplot_and_stats(
-    electrode_selection=["POz", "Pz", "PO1", "PO2", "P1", "P2"],
-    freq_selection=(8, 12),
-    stat_label="alpha",
-    timewin_stats=(-0.4, 0),
+# Define adjacency
+adjacency, channel_names = mne.channels.find_ch_adjacency(
+    ersps_close[0].info, ch_type="eeg"
 )
 
-aa=bb
+# Plot adjacency
+mne.viz.plot_ch_adjacency(ersps_close[0].info, adjacency, channel_names)
 
+# Define adjacency in tf-sensor-space
+tfs_adjacency = mne.stats.combine_adjacency(
+    len(ersps_close[0].freqs), len(ersps_close[0].times), adjacency
+)
 
+# We are running an F test, so we look at the upper tail
+# see also: https://stats.stackexchange.com/a/73993
+tail = 1
 
+# We want to set a critical test statistic (here: F), to determine when
+# clusters are being formed. Using Scipy's percent point function of the F
+# distribution, we can conveniently select a threshold that corresponds to
+# some alpha level that we arbitrarily pick.
+alpha_cluster_forming = 0.1
 
+# For an F test we need the degrees of freedom for the numerator
+# (number of conditions - 1) and the denominator (number of observations
+# - number of conditions):
+n_conditions = 2
+n_observations = len(datasets)
+df_effect = n_conditions - 1
+df_error = n_observations - n_conditions
+
+# Note: we calculate 1 - alpha_cluster_forming to get the critical value
+# on the right tail
+f_thresh = scipy.stats.f.ppf(1 - alpha_cluster_forming, dfn=df_effect, dfd=df_error)
+
+# Run the cluster based permutation analysis
+# cluster_stats_trajectory = mne.stats.spatio_temporal_cluster_test(
+#     [ersps_matrices_close, ersps_matrices_below, ersps_matrices_above],
+#     n_permutations=1000,
+#     threshold=f_thresh,
+#     tail=tail,
+#     n_jobs=-2,
+#     buffer_size=None,
+#     adjacency=tfs_adjacency,
+#     out_type="mask",
+#     seed=4,
+# )
+# F_obs_trajectory, clusters_trajectory, p_values_trajectory, _ = cluster_stats_trajectory
 
 # Grand averages considering group factor
 ersps_close_exp = mne.grand_average(
@@ -499,7 +340,7 @@ frontal_theta_above_cnt = ersps_matrices_above[idx_subject, :, :, :][
 
 # id group trajectory time value
 timewin_stats = (0.15, 0.25)
-idx_channel = np.array([3, 4, 5, 8, 9, 64])
+idx_channel = np.array([3,4,5,8,9,64])
 idx_freqs = (ersp_close.freqs >= 4) & (ersp_close.freqs <= 7)
 df_frontal_theta = pd.DataFrame(
     columns=["id", "group", "trajectory", "time (s)", "in_statwin", "theta (dB)"]
