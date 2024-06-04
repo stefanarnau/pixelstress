@@ -28,17 +28,19 @@ path_stats = "/mnt/data_dump/pixelstress/stats/"
 datasets = glob.glob(f"{path_in}/*tf.set")
 
 # Load questionnaire
-quest = pd.read_csv("questionnaire.csv")
+df_quest = pd.read_csv(os.path.join(path_in, "questionnaire.csv"))
 
-# Exclude list
-to_drop = [""]
+# Reduce dataframe to exclude
+df_quest = df_quest[df_quest['influence'].isin(['4'])]
 
+# Get indices to drop
+idx_drop = [idx for idx, e in enumerate([int(x.split("_")[-3]) for x in datasets]) if e in df_quest["id"].tolist()]
 
-a = [x.split("_")[-3] for x in datasets]
+# Actually drop
+datasets = [e for idx, e in enumerate(datasets) if idx not in idx_drop]
 
 # Create a montage
 standard_1020_montage = mne.channels.make_standard_montage("standard_1020")
-
 
 # Function for plotting erps and calculate stats
 def get_erspplot_and_stats(
@@ -203,8 +205,8 @@ for dataset in datasets:
     group.append(trialinfo.session_condition[0])
 
     # Get trial indices
-    early_sequences = 5
-    late_sequences = 8
+    early_sequences = 6
+    late_sequences = 7
     idx_close_early = np.where(
         (trialinfo.sequence_nr < early_sequences) & (trialinfo.block_wiggleroom == 0)
     )[0]
@@ -359,8 +361,29 @@ matrices_above_late = np.stack(matrices_above_late)
 
 # Get frontal theta
 df_stats_frontal_theta = get_erspplot_and_stats(
-    electrode_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
+    electrode_selection=[ "FCz", "FC1", "FC2", "Fz", "Cz"],
     freq_selection=(4, 7),
     stat_label="frontal theta",
-    timewin_stats=(-1.1, -0.4),
+    timewin_stats=(-0.8, -0.2),
 )
+
+# Draw a pointplot to show pulse as a function of three categorical factors
+g = sns.catplot(
+    data=df_stats_frontal_theta, x="stage", y="dB", hue="trajectory", col="group",
+    capsize=.2, palette="rocket", errorbar="se",
+    kind="point", height=6, aspect=.75,
+)
+g.despine(left=True)
+
+
+
+# Get posterior alpha
+df_stats_some_alpha = get_erspplot_and_stats(
+    electrode_selection=[ "POz", "Oz", "Pz", "PO3", "PO4"],
+    freq_selection=(8, 12),
+    stat_label="posterior alpha",
+    timewin_stats=(-0.8, -0.2),
+)
+
+
+
