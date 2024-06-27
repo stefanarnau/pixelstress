@@ -31,13 +31,13 @@ datasets = glob.glob(f"{path_in}/*tf.set")
 df_quest = pd.read_csv(os.path.join(path_in, "questionnaire.csv"))
 
 # Reduce dataframe to exclude
-df_quest = df_quest[df_quest['influence'].isin(['4'])]
+#df_quest = df_quest[df_quest['influence'].isin(['4'])]
 
 # Get indices to drop
-idx_drop = [idx for idx, e in enumerate([int(x.split("_")[-3]) for x in datasets]) if e in df_quest["id"].tolist()]
+#idx_drop = [idx for idx, e in enumerate([int(x.split("_")[-3]) for x in datasets]) if e in df_quest["id"].tolist()]
 
 # Actually drop
-datasets = [e for idx, e in enumerate(datasets) if idx not in idx_drop]
+#datasets = [e for idx, e in enumerate(datasets) if idx not in idx_drop]
 
 # Create a montage
 standard_1020_montage = mne.channels.make_standard_montage("standard_1020")
@@ -247,7 +247,7 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
     ersp_below_early = mne.time_frequency.tfr_morlet(
         eeg_epochs[idx_below_early],
         tf_freqs,
@@ -256,7 +256,7 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
     ersp_above_early = mne.time_frequency.tfr_morlet(
         eeg_epochs[idx_above_early],
         tf_freqs,
@@ -265,7 +265,7 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
     ersp_close_late = mne.time_frequency.tfr_morlet(
         eeg_epochs[idx_close_late],
         tf_freqs,
@@ -274,7 +274,7 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
     ersp_below_late = mne.time_frequency.tfr_morlet(
         eeg_epochs[idx_below_late],
         tf_freqs,
@@ -283,7 +283,7 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
     ersp_above_late = mne.time_frequency.tfr_morlet(
         eeg_epochs[idx_above_late],
         tf_freqs,
@@ -292,43 +292,43 @@ for dataset in datasets:
         return_itc=False,
         n_jobs=-2,
         decim=2,
-    ).apply_baseline((-1.5, -1.2), mode="logratio")
+    )#.apply_baseline((-1.5, -1.2), mode="logratio")
 
     # Get baseline indices
     idx_bl = (ersp_close_early.times >= -1.5) & (ersp_close_early.times <= -1.2)
 
-    # # Average baseline values
-    # bl_values = (
-    #     ersp_close_early._data
-    #     + ersp_below_early._data
-    #     + ersp_above_early._data
-    #     + ersp_close_late._data
-    #     + ersp_below_late._data
-    #     + ersp_above_late._data
-    # ) / 3
-    # bl_values = bl_values[:, :, idx_bl].mean(axis=2)
+    # Average baseline values
+    bl_values = (
+        ersp_close_early._data
+        + ersp_below_early._data
+        + ersp_above_early._data
+        + ersp_close_late._data
+        + ersp_below_late._data
+        + ersp_above_late._data
+    ) / 3
+    bl_values = bl_values[:, :, idx_bl].mean(axis=2)
 
-    # # Apply condition general dB baseline
-    # for ch in range(bl_values.shape[0]):
-    #     for fr in range(bl_values.shape[1]):
-    #         ersp_close_early._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_close_early._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
-    #         ersp_below_early._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_below_early._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
-    #         ersp_above_early._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_above_early._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
-    #         ersp_close_late._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_close_late._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
-    #         ersp_below_late._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_below_late._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
-    #         ersp_above_late._data[ch, fr, :] = 10 * np.log10(
-    #             ersp_above_late._data[ch, fr, :].copy() / bl_values[ch, fr]
-    #         )
+    # Apply condition general dB baseline
+    for ch in range(bl_values.shape[0]):
+        for fr in range(bl_values.shape[1]):
+            ersp_close_early._data[ch, fr, :] = 10 * np.log10(
+                ersp_close_early._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
+            ersp_below_early._data[ch, fr, :] = 10 * np.log10(
+                ersp_below_early._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
+            ersp_above_early._data[ch, fr, :] = 10 * np.log10(
+                ersp_above_early._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
+            ersp_close_late._data[ch, fr, :] = 10 * np.log10(
+                ersp_close_late._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
+            ersp_below_late._data[ch, fr, :] = 10 * np.log10(
+                ersp_below_late._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
+            ersp_above_late._data[ch, fr, :] = 10 * np.log10(
+                ersp_above_late._data[ch, fr, :].copy() / bl_values[ch, fr]
+            )
 
     # Crop
     ersp_close_early.crop(tmin=-1.5, tmax=1)
@@ -362,18 +362,36 @@ matrices_above_late = np.stack(matrices_above_late)
 # Get frontal theta
 df_stats_frontal_theta = get_erspplot_and_stats(
     electrode_selection=[ "FCz", "FC1", "FC2", "Fz", "Cz"],
-    freq_selection=(4, 7),
-    stat_label="frontal theta",
-    timewin_stats=(-0.8, -0.2),
+    freq_selection=(4, 6),
+    stat_label="frontal_theta",
+    timewin_stats=(-0.7, -0.3),
 )
 
-# Draw a pointplot to show pulse as a function of three categorical factors
+# Draw a pointplot to show theta as a function of three categorical factors
 g = sns.catplot(
     data=df_stats_frontal_theta, x="stage", y="dB", hue="trajectory", col="group",
     capsize=.2, palette="rocket", errorbar="se",
     kind="point", height=6, aspect=.75,
 )
 g.despine(left=True)
+
+# Get frontal alpha
+df_stats_frontal_alpha = get_erspplot_and_stats(
+    electrode_selection=[ "FCz", "FC1", "FC2", "Fz", "Cz"],
+    freq_selection=(10, 12),
+    stat_label="frontal_alpha",
+    timewin_stats=(-1.5, -1.2),
+)
+
+# Draw a pointplot to show theta as a function of three categorical factors
+g = sns.catplot(
+    data=df_stats_frontal_alpha, x="stage", y="dB", hue="trajectory", col="group",
+    capsize=.2, palette="rocket", errorbar="se",
+    kind="point", height=6, aspect=.75,
+)
+g.despine(left=True)
+
+
 
 
 
@@ -385,5 +403,11 @@ df_stats_some_alpha = get_erspplot_and_stats(
     timewin_stats=(-0.8, -0.2),
 )
 
-
+# Draw a pointplot to show theta as a function of three categorical factors
+g = sns.catplot(
+    data=df_stats_some_alpha, x="stage", y="dB", hue="trajectory", col="group",
+    capsize=.2, palette="rocket", errorbar="se",
+    kind="point", height=6, aspect=.75,
+)
+g.despine(left=True)
 

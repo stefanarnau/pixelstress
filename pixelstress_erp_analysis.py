@@ -241,21 +241,39 @@ matrices_above_late = np.stack(matrices_above_late)
 
 
 # Get ERP for Fz
-df_stats_Fz = get_erpplot_and_stats(
-    electrode_selection=["Fz", "Fp1", "Fp2", "F1", "F2"], stat_label="Fz", timewin_stats=(-0.4, 0)
-)
 df_stats_FCz = get_erpplot_and_stats(
-    electrode_selection=["FCz", "FC1", "FC2"], stat_label="FCz", timewin_stats=(-0.8, 0)
+    electrode_selection=["FCz"], stat_label="FCz", timewin_stats=(-0.2, 0)
 )
 
-# Drpo stage early
-df_stats_Fz.drop(df_stats_Fz[df_stats_Fz.stage == "early"].index, inplace=True)
-
-# Mixed anova
-aov_frontal_erp = pg.mixed_anova(
-    dv="V",
-    between="group",
-    within="trajectory",
-    subject="id",
-    data=df_stats_Fz,
+# Draw a pointplot
+g = sns.catplot(
+    data=df_stats_FCz, x="stage", y="V", hue="trajectory", col="group",
+    capsize=.2, palette="rocket", errorbar="se",
+    kind="point", height=6, aspect=.75,
 )
+g.despine(left=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

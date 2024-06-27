@@ -27,8 +27,8 @@ df = pd.read_csv(os.path.join(path_in, "behavior_all_tf.csv"))
 
 # Add new variable block_phase
 df = df.assign(block_phase="middle")
-df.block_phase[df.sequence_nr <= 6] = "begin"
-df.block_phase[df.sequence_nr >= 7] = "end"
+df.block_phase[df.sequence_nr <= 4] = "begin"
+df.block_phase[df.sequence_nr >= 9] = "end"
 
 # Add new variable trajectory
 df = df.assign(trajectory="none")
