@@ -15,7 +15,6 @@ import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pingouin as pg
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -95,24 +94,24 @@ df.trajectory2[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "+2"
 df.trajectory2[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "-2"
 
 # Drop middle trials
-# df = df.drop(df[df.stage == "middle"].index).reset_index()
+df = df.drop(df[df.stage == "middle"].index).reset_index()
 
 # Create df for correct only
 df_correct_only = df.drop(df[df.accuracy != 1].index)
 
 # Get rt for conditions
 df_rt = (
-    df_correct_only.groupby(["id", "trajectory"])["rt"]
+    df_correct_only.groupby(["id", "trajectory", "stage"])["rt"]
     .mean()
     .reset_index(name="ms")
 )
 
 # Get accuracy for conditions
 series_n_all = (
-    df.groupby(["id", "trajectory"]).size().reset_index(name="acc")["acc"]
+    df.groupby(["id", "trajectory", "stage"]).size().reset_index(name="acc")["acc"]
 )
 series_n_correct = (
-    df_correct_only.groupby(["id", "trajectory"])
+    df_correct_only.groupby(["id", "trajectory", "stage"])
     .size()
     .reset_index(name="acc")["acc"]
 )
@@ -120,7 +119,7 @@ series_accuracy = series_n_correct / series_n_all
 
 # Get session condition for conditions
 series_session = (
-    df.groupby(["id", "trajectory"])["session_condition"]
+    df.groupby(["id", "trajectory", "stage"])["session_condition"]
     .mean()
     .reset_index(name="session")["session"]
 )
@@ -145,9 +144,10 @@ df_rt["trajectory"] = df_rt["trajectory"].astype("category")
 # Plot
 g = sns.catplot(
     data=df_rt,
-    x="group",
+    x="stage",
     y="ms",
     hue="trajectory",
+    col="group",
     capsize=0.2,
     palette="rocket",
     errorbar="se",
@@ -160,9 +160,10 @@ g.despine(left=True)
 
 g = sns.catplot(
     data=df_rt,
-    x="group",
+    x="stage",
     y="acc",
     hue="trajectory",
+    col="group",
     capsize=0.2,
     palette="rocket",
     errorbar="se",
@@ -171,3 +172,27 @@ g = sns.catplot(
     aspect=0.75,
 )
 g.despine(left=True)
+
+g = sns.catplot(
+    data=df_rt,
+    x="stage",
+    y="ie",
+    hue="trajectory",
+    col="group",
+    capsize=0.2,
+    palette="rocket",
+    errorbar="se",
+    kind="point",
+    height=6,
+    aspect=0.75,
+)
+g.despine(left=True)
+
+
+# Save dataframe
+df_rt.to_csv(os.path.join(path_stats, "behavioral data.csv"))
+
+
+
+
+

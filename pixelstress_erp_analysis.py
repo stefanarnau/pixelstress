@@ -13,9 +13,9 @@ import os
 import pandas as pd
 import numpy as np
 import scipy.stats
+import scipy.io
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pingouin as pg
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -162,19 +162,30 @@ matrices_above_late = []
 group = []
 ids = []
 
+# Load channel labels
+channel_labels = open("/home/plkn/repos/pixelstress/chanlabels_pixelstress.txt", "r").read().split("\n")[:-1]
+
+# Create info
+info = mne.create_info(channel_labels, 1000, ch_types='eeg', verbose=None)
+
 # Loop datasets
 for dataset in datasets:
 
     # Get id
     ids.append(int(dataset.split("/")[-1].split("_")[1]))
+    
+    # Load eeg data
+    eeg_data = np.transpose(scipy.io.loadmat(dataset)["data"], [2, 0, 1])
+    
+    eeg_epochs = mne.EpochsArray(eeg_data, info, tmin=-1.3).apply_baseline(baseline=(-1.2, -1)).resample(200).crop(tmin=-1.2, tmax=0.5)
 
     # Load a dataset
-    eeg_epochs = (
-        mne.io.read_epochs_eeglab(dataset)
-        .apply_baseline(baseline=(-1.2, -1))
-        .resample(200)
-        .crop(tmin=-1.2, tmax=0.5)
-    )
+    # eeg_epochs = (
+    #     mne.read_epochs_eeglab(dataset)
+    #     .apply_baseline(baseline=(-1.2, -1))
+    #     .resample(200)
+    #     .crop(tmin=-1.2, tmax=0.5)
+    # )
 
     # Save times
     erp_times = eeg_epochs.times
