@@ -253,7 +253,7 @@ matrices_above_late = np.stack(matrices_above_late)
 
 # Get ERP for Fz
 df_stats_FCz = get_erpplot_and_stats(
-    electrode_selection=["FCz", "FC1", "FC2", "Cz", "Fz"], stat_label="frontal_electrodes", timewin_stats=(-0.5, 0)
+    electrode_selection=["FCz"], stat_label="frontal_electrodes", timewin_stats=(-0.25, 0)
 )
 
 # Draw a pointplot
