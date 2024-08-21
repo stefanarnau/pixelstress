@@ -101,17 +101,17 @@ df_correct_only = df.drop(df[df.accuracy != 1].index)
 
 # Get rt for conditions
 df_rt = (
-    df_correct_only.groupby(["id", "post_cold", "stage"])["rt"]
+    df_correct_only.groupby(["id", "trajectory", "stage"])["rt"]
     .mean()
     .reset_index(name="ms")
 )
 
 # Get accuracy for conditions
 series_n_all = (
-    df.groupby(["id", "post_cold", "stage"]).size().reset_index(name="acc")["acc"]
+    df.groupby(["id", "trajectory", "stage"]).size().reset_index(name="acc")["acc"]
 )
 series_n_correct = (
-    df_correct_only.groupby(["id", "post_cold", "stage"])
+    df_correct_only.groupby(["id", "trajectory", "stage"])
     .size()
     .reset_index(name="acc")["acc"]
 )
@@ -119,7 +119,7 @@ series_accuracy = series_n_correct / series_n_all
 
 # Get session condition for conditions
 series_session = (
-    df.groupby(["id", "post_cold", "stage"])["session_condition"]
+    df.groupby(["id", "trajectory", "stage"])["session_condition"]
     .mean()
     .reset_index(name="session")["session"]
 )
@@ -139,14 +139,14 @@ df_rt.group[(df_rt.group == 2)] = "control"
 
 # Make vars categorial
 df_rt["group"] = df_rt["group"].astype("category")
-df_rt["post_cold"] = df_rt["post_cold"].astype("category")
+df_rt["trajectory"] = df_rt["trajectory"].astype("category")
 
 # Plot
 g = sns.catplot(
     data=df_rt,
     x="stage",
     y="ms",
-    hue="post_cold",
+    hue="trajectory",
     col="group",
     capsize=0.2,
     palette="rocket",
@@ -162,7 +162,7 @@ g = sns.catplot(
     data=df_rt,
     x="stage",
     y="acc",
-    hue="post_cold",
+    hue="trajectory",
     col="group",
     capsize=0.2,
     palette="rocket",
@@ -177,7 +177,7 @@ g = sns.catplot(
     data=df_rt,
     x="stage",
     y="ie",
-    hue="post_cold",
+    hue="trajectory",
     col="group",
     capsize=0.2,
     palette="rocket",
