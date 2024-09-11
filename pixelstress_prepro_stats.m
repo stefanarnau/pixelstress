@@ -1,7 +1,7 @@
 clear all;
 
 % PATH VARS
-PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
+PATH_EEGLAB = '/home/plkn/eeglab2024.0/';
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 
 
