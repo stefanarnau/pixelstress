@@ -4,44 +4,37 @@ clear all;
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
 PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
 PATH_FIELDTRIP = '/home/plkn/fieldtrip-master/';
-PATH_OUT = '/mnt/data_dump/pixelstress/3_behavior/';
 
 % List of preprocessed datasets
-subject_list = {'2_2',...
-                '7_2',...
-                '8_2',...
-                '9_1',...
+subject_list = {'9_1',...
                 '10_1',...
-                '11_2',...
-                '12_2',...
                 '14_1',...
-                '15_2',...
-                '16_2',...
                 '17_1',...
                 '19_1',...
-                '20_2',...
                 '21_1',...
-                '22_2',...
                 '23_1',...
-                '24_2',...
                 '25_1',...
                 '26_1',...
-                '27_2',...
                 '28_1',...
-                '29_2',...
                 '30_1',...
-                '31_2',...
                 '32_1',...
-                '33_2',...
-                '34_2',...
                 '35_1',...
                 '36_1',...
-                '37_2',...
                 '38_1',...
-                '39_2',...
                 '40_1',...
-                '41_2',...
-                '42_2',...
+                '43_1',...
+                '44_1',...
+                '47_1',...
+                '48_1',...
+                '50_1',...
+                '52_1',...
+                '55_1',...
+                '57_1',...
+                '58_1',...
+                '76_1',...
+                '77_1',...
+                '79_1',...
+                '81_1',...
                };
 
 % Init eeglab
@@ -56,29 +49,40 @@ ft_defaults;
 EEG_ERP_INFO = pop_loadset('filename', ['vp_', subject_list{1}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'info');
 
 % Init erp matrix
-erps = zeros(length(subject_list), 3, EEG_ERP_INFO.nbchan, EEG_ERP_INFO.pnts);
+erps = zeros(length(subject_list), 11, EEG_ERP_INFO.nbchan, EEG_ERP_INFO.pnts);
 
 % Table for between factor
 group_idx = [];
 
-% Loop subjects
+% Loop subjects and calculate condition ERPs
 for s = 1 : length(subject_list)
 
     % Load subject ERP data
     EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'all');
 
-    % Get between subject condition (1=exp, 2=control)
-    group_idx(s) = EEG.trialinfo.session_condition(1);
-
     % Get trial idx
-    idx_close = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 0;
-    idx_below = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
-    idx_above = EEG.trialinfo.sequence_nr >= 7 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1 ;
+    idx_close = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 0;
+    idx_below = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
+    idx_above = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
+    
+    idx_early = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.sequence_nr <= 5;
+    idx_late  = EEG.trialinfo.sequence_nr >= 9 & EEG.trialinfo.sequence_nr <= 12;
 
     % Get ERP
     erps(s, 1, :, :) = squeeze(mean(EEG.data(:, :, idx_close), 3));
     erps(s, 2, :, :) = squeeze(mean(EEG.data(:, :, idx_below), 3));
     erps(s, 3, :, :) = squeeze(mean(EEG.data(:, :, idx_above), 3));
+
+    erps(s, 4, :, :) = squeeze(mean(EEG.data(:, :, idx_early), 3));
+    erps(s, 5, :, :) = squeeze(mean(EEG.data(:, :, idx_late), 3));
+
+    erps(s, 6, :, :) = squeeze(mean(EEG.data(:, :, idx_close & idx_early), 3));
+    erps(s, 7, :, :) = squeeze(mean(EEG.data(:, :, idx_close & idx_late), 3));
+    erps(s, 8, :, :) = squeeze(mean(EEG.data(:, :, idx_below & idx_early), 3));
+    erps(s, 9, :, :) = squeeze(mean(EEG.data(:, :, idx_below & idx_late), 3));
+    erps(s, 10, :, :) = squeeze(mean(EEG.data(:, :, idx_above & idx_early), 3));
+    erps(s, 11, :, :) = squeeze(mean(EEG.data(:, :, idx_above & idx_late), 3));
+
     erp_times = EEG.times;
 
 end
@@ -88,6 +92,47 @@ time_idx = EEG.times >= -1200 & EEG.times <= 500;
 erp_times = EEG.times(time_idx);
 erps = erps(:, :, :, time_idx);
 
+% A plot
+
+
+% Create y-axis data for 6 different lines
+idx_chan = [5, 14, 65, 9, 10];
+y1 = squeeze(mean(erps(:, 6,  idx_chan, :), [1, 3]));
+y2 = squeeze(mean(erps(:, 7,  idx_chan, :), [1, 3]));
+y3 = squeeze(mean(erps(:, 8,  idx_chan, :), [1, 3]));
+y4 = squeeze(mean(erps(:, 9,  idx_chan, :), [1, 3]));
+y5 = squeeze(mean(erps(:, 10, idx_chan, :), [1, 3]));
+y6 = squeeze(mean(erps(:, 11, idx_chan, :), [1, 3]));
+
+% Create the plot
+figure;
+plot(erp_times, y1, 'k-', 'LineWidth', 2);
+hold on;
+plot(erp_times, y2, 'k:', 'LineWidth', 2);
+plot(erp_times, y3, 'r-', 'LineWidth', 2);
+plot(erp_times, y4, 'r:', 'LineWidth', 2);
+plot(erp_times, y5, 'g-', 'LineWidth', 2);
+plot(erp_times, y6, 'g:', 'LineWidth', 2);
+
+% Add labels and title
+xlabel('X-axis');
+ylabel('Y-axis');
+title('Six Different Lines in One Plot');
+
+% Add a legend
+legend('close-e', 'close-l', 'below-e', 'below-l', 'above-e', 'below-l', 'Location', 'best');
+
+% Add grid
+grid on;
+
+% Hold off to end the plotting
+hold off;
+
+aa = bb;
+
+
+
+
 % Build elec struct
 elec = struct();
 for ch = 1 : length(EEG.chanlocs)
@@ -96,7 +141,7 @@ for ch = 1 : length(EEG.chanlocs)
     elec.chanpos(ch, :) = [EEG.chanlocs(ch).X, EEG.chanlocs(ch).Y, EEG.chanlocs(ch).Z];
 end
 
-% Build GA for trajectories
+% Build GAs for main effect trajectories
 for s = 1 : length(subject_list)
     d = [];
     d.dimord = 'chan_time';
@@ -133,119 +178,35 @@ cfg=[];
 cfg.keepindividual = 'yes';
 GA_above = ft_timelockgrandaverage(cfg, D{1, :});
 
-% Build GA for group comparison
-counter_1 = 0;
-counter_2 = 0;
-D1 = {};
-D2 = {};
-for s = 1 : length(subject_list)
-    if group_idx(s) == 1
-        counter_1 = counter_1 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(mean(erps(s, :, :, :), 2));
-        D1{counter_1} = d;
-    elseif group_idx(s) == 2
-        counter_2 = counter_2 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(mean(erps(s, :, :, :), 2));
-        D2{counter_2} = d;
-    end
-end
-cfg=[];
-cfg.keepindividual = 'yes';
-GA_group1 = ft_timelockgrandaverage(cfg, D1{1, :});
-GA_group2 = ft_timelockgrandaverage(cfg, D2{1, :});
 
-% Build GA for condition differences within groups
-counter_1 = 0;
-counter_2 = 0;
-D1 = {};
-D2 = {};
+% Build GAs for main effect trajectories
 for s = 1 : length(subject_list)
-    if group_idx(s) == 1
-        counter_1 = counter_1 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 2, :, :));
-        D1{counter_1} = d;
-    elseif group_idx(s) == 2
-        counter_2 = counter_2 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 2, :, :));
-        D2{counter_2} = d;
-    end
+    d = [];
+    d.dimord = 'chan_time';
+    d.label = elec.label;
+    d.time = erp_times;
+    d.avg = squeeze(erps(s, 1, :, :));
+    D{s} = d;
 end
 cfg=[];
 cfg.keepindividual = 'yes';
-GA_group1_close_below = ft_timelockgrandaverage(cfg, D1{1, :});
-GA_group2_close_below = ft_timelockgrandaverage(cfg, D2{1, :});
+GA_close = ft_timelockgrandaverage(cfg, D{1, :});
 
-counter_1 = 0;
-counter_2 = 0;
-D1 = {};
-D2 = {};
 for s = 1 : length(subject_list)
-    if group_idx(s) == 1
-        counter_1 = counter_1 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 2, :, :)) - squeeze(erps(s, 3, :, :));
-        D1{counter_1} = d;
-    elseif group_idx(s) == 2
-        counter_2 = counter_2 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 2, :, :)) - squeeze(erps(s, 3, :, :));
-        D2{counter_2} = d;
-    end
+    d = [];
+    d.dimord = 'chan_time';
+    d.label = elec.label;
+    d.time = erp_times;
+    d.avg = squeeze(erps(s, 2, :, :));
+    D{s} = d;
 end
 cfg=[];
 cfg.keepindividual = 'yes';
-GA_group1_below_above = ft_timelockgrandaverage(cfg, D1{1, :});
-GA_group2_below_above = ft_timelockgrandaverage(cfg, D2{1, :});
+GA_below = ft_timelockgrandaverage(cfg, D{1, :});
 
-counter_1 = 0;
-counter_2 = 0;
-D1 = {};
-D2 = {};
-for s = 1 : length(subject_list)
-    if group_idx(s) == 1
-        counter_1 = counter_1 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 3, :, :));
-        D1{counter_1} = d;
-    elseif group_idx(s) == 2
-        counter_2 = counter_2 + 1;
-        d = [];
-        d.dimord = 'chan_time';
-        d.label = elec.label;
-        d.time = erp_times;
-        d.avg = squeeze(erps(s, 1, :, :)) - squeeze(erps(s, 3, :, :));
-        D2{counter_2} = d;
-    end
-end
-cfg=[];
-cfg.keepindividual = 'yes';
-GA_group1_close_above = ft_timelockgrandaverage(cfg, D1{1, :});
-GA_group2_close_above = ft_timelockgrandaverage(cfg, D2{1, :});
+
+
+
 
 % Prepare layout
 cfg      = [];
