@@ -2,8 +2,9 @@ clear all;
 
 % PATH VARS
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
-PATH_EEGLAB = '/home/plkn/eeglab2023.1/';
+PATH_EEGLAB = '/home/plkn/eeglab2024.0/';
 PATH_FIELDTRIP = '/home/plkn/fieldtrip-master/';
+PATH_OUTPUT = '/mnt/data_dump/pixelstress/plots/';
 
 % List of preprocessed datasets
 subject_list = {'9_1',...
@@ -35,6 +36,9 @@ subject_list = {'9_1',...
                 '77_1',...
                 '79_1',...
                 '81_1',...
+                '82_1',...
+                '84_1',...
+                '85_1',...
                };
 
 % Init eeglab
@@ -59,14 +63,15 @@ for s = 1 : length(subject_list)
 
     % Load subject ERP data
     EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'all');
+    EEG = pop_rmbase(EEG, [-1100, -1000]);
 
     % Get trial idx
-    idx_close = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 0;
-    idx_below = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
-    idx_above = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
+    idx_close = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 0;
+    idx_below = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
+    idx_above = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
     
-    idx_early = EEG.trialinfo.sequence_nr >= 2 & EEG.trialinfo.sequence_nr <= 5;
-    idx_late  = EEG.trialinfo.sequence_nr >= 9 & EEG.trialinfo.sequence_nr <= 12;
+    idx_early = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.sequence_nr <= 5;
+    idx_late  = EEG.trialinfo.sequence_nr >= 8 & EEG.trialinfo.sequence_nr <= 12;
 
     % Get ERP
     erps(s, 1, :, :) = squeeze(mean(EEG.data(:, :, idx_close), 3));
@@ -87,51 +92,102 @@ for s = 1 : length(subject_list)
 
 end
 
+% New electrode order
+new_order = [1, 2,...          % FP1 Fp2
+             33, 34, 35, 36,...          % AF7 AF3 AF4 AF8 
+             3, 37, 4, 38, 5, 39, 6, 40, 7,...   % F7 F5 F3 F1 Fz F2 F4 F6 F8
+             41, 42, 8, 43, 9, 65, 10, 44, 11, 45, 46,...           % FT9 FT7 FC5 FC3 FC1 FCz FC2 FC4 FC6 FT8 FT10 
+             12, 47, 13, 48, 14, 49, 15, 50, 16,...   % T7 C5 C3 C1 Cz C2 C4 C6 T8
+             17, 51, 18, 52, 19, 53, 20, 54, 21, 55, 22,...           % TP9 TP7 CP5 CP3 CP1 CPz CP2 CP4 CP6 TP8 TP10
+             23, 56, 24, 57, 25, 58, 26, 59, 27,... % P7 P5 P3 P1 Pz P2 P4 P6 P8
+             28, 60, 61, 62, 63, 64, 32,...         % PO9 PO7 PO3 POz PO4 PO8 PO10
+             29, 30, 31];           % O1 Oz O2
+
+% Re-order channels
+erps = erps(:, :, new_order, :);
+chanlocs = EEG.chanlocs;
+for ch = 1 : numel(EEG.chanlocs)
+    chanlocs(ch) = EEG.chanlocs(new_order(ch));
+end
+
 % Crop in time
-time_idx = EEG.times >= -1200 & EEG.times <= 500;
+time_idx = EEG.times >= -1200 & EEG.times <= 50;
 erp_times = EEG.times(time_idx);
 erps = erps(:, :, :, time_idx);
 
-% A plot
-
-
-% Create y-axis data for 6 different lines
-idx_chan = [5, 14, 65, 9, 10];
-y1 = squeeze(mean(erps(:, 6,  idx_chan, :), [1, 3]));
-y2 = squeeze(mean(erps(:, 7,  idx_chan, :), [1, 3]));
-y3 = squeeze(mean(erps(:, 8,  idx_chan, :), [1, 3]));
-y4 = squeeze(mean(erps(:, 9,  idx_chan, :), [1, 3]));
-y5 = squeeze(mean(erps(:, 10, idx_chan, :), [1, 3]));
-y6 = squeeze(mean(erps(:, 11, idx_chan, :), [1, 3]));
-
-% Create the plot
+% Plot
 figure;
-plot(erp_times, y1, 'k-', 'LineWidth', 2);
-hold on;
-plot(erp_times, y2, 'k:', 'LineWidth', 2);
-plot(erp_times, y3, 'r-', 'LineWidth', 2);
-plot(erp_times, y4, 'r:', 'LineWidth', 2);
-plot(erp_times, y5, 'g-', 'LineWidth', 2);
-plot(erp_times, y6, 'g:', 'LineWidth', 2);
-
-% Add labels and title
-xlabel('X-axis');
-ylabel('Y-axis');
-title('Six Different Lines in One Plot');
-
-% Add a legend
-legend('close-e', 'close-l', 'below-e', 'below-l', 'above-e', 'below-l', 'Location', 'best');
-
-% Add grid
-grid on;
-
-% Hold off to end the plotting
+subplot(4, 1, 1)
+pd_close_early = squeeze(mean(squeeze(erps(:, 6, 11, :)), 1));
+pd_close_late  = squeeze(mean(squeeze(erps(:, 7, 11, :)), 1));
+pd_below_early = squeeze(mean(squeeze(erps(:, 8, 11, :)), 1));
+pd_below_late  = squeeze(mean(squeeze(erps(:, 9, 11, :)), 1));
+pd_above_early = squeeze(mean(squeeze(erps(:, 10, 11, :)), 1));
+pd_above_late  = squeeze(mean(squeeze(erps(:, 11, 11, :)), 1));
+plot(erp_times, pd_close_early, ':k', 'LineWidth', 1.5)
+hold on
+plot(erp_times, pd_close_late, '-k', 'LineWidth', 1.5)
+plot(erp_times, pd_below_early, ':r', 'LineWidth', 1.5)
+plot(erp_times, pd_below_late, '-r', 'LineWidth', 1.5)
+plot(erp_times, pd_above_early, ':c', 'LineWidth', 1.5)
+plot(erp_times, pd_above_late, '-c', 'LineWidth', 1.5)
+title('trajectory Fz')
+legend({'close-e', 'close-l','below-e', 'below-l', 'above-e', 'above-l'})
 hold off;
 
-aa = bb;
+subplot(4, 1, 2)
+pd_close_early = squeeze(mean(squeeze(erps(:, 6, 21, :)), 1));
+pd_close_late  = squeeze(mean(squeeze(erps(:, 7, 21, :)), 1));
+pd_below_early = squeeze(mean(squeeze(erps(:, 8, 21, :)), 1));
+pd_below_late  = squeeze(mean(squeeze(erps(:, 9, 21, :)), 1));
+pd_above_early = squeeze(mean(squeeze(erps(:, 10, 21, :)), 1));
+pd_above_late  = squeeze(mean(squeeze(erps(:, 11, 21, :)), 1));
+plot(erp_times, pd_close_early, ':k', 'LineWidth', 1.5)
+hold on
+plot(erp_times, pd_close_late, '-k', 'LineWidth', 1.5)
+plot(erp_times, pd_below_early, ':r', 'LineWidth', 1.5)
+plot(erp_times, pd_below_late, '-r', 'LineWidth', 1.5)
+plot(erp_times, pd_above_early, ':c', 'LineWidth', 1.5)
+plot(erp_times, pd_above_late, '-c', 'LineWidth', 1.5)
+title('trajectory FCz')
+legend({'close-e', 'close-l','below-e', 'below-l', 'above-e', 'above-l'})
+hold off;
 
+subplot(4, 1, 3)
+pd_close_early = squeeze(mean(squeeze(erps(:, 6, 31, :)), 1));
+pd_close_late  = squeeze(mean(squeeze(erps(:, 7, 31, :)), 1));
+pd_below_early = squeeze(mean(squeeze(erps(:, 8, 31, :)), 1));
+pd_below_late  = squeeze(mean(squeeze(erps(:, 9, 31, :)), 1));
+pd_above_early = squeeze(mean(squeeze(erps(:, 10, 31, :)), 1));
+pd_above_late  = squeeze(mean(squeeze(erps(:, 11, 31, :)), 1));
+plot(erp_times, pd_close_early, ':k', 'LineWidth', 1.5)
+hold on
+plot(erp_times, pd_close_late, '-k', 'LineWidth', 1.5)
+plot(erp_times, pd_below_early, ':r', 'LineWidth', 1.5)
+plot(erp_times, pd_below_late, '-r', 'LineWidth', 1.5)
+plot(erp_times, pd_above_early, ':c', 'LineWidth', 1.5)
+plot(erp_times, pd_above_late, '-c', 'LineWidth', 1.5)
+title('trajectory Cz')
+legend({'close-e', 'close-l','below-e', 'below-l', 'above-e', 'above-l'})
+hold off;
 
-
+subplot(4, 1, 4)
+pd_close_early = squeeze(mean(squeeze(erps(:, 6, 51, :)), 1));
+pd_close_late  = squeeze(mean(squeeze(erps(:, 7, 51, :)), 1));
+pd_below_early = squeeze(mean(squeeze(erps(:, 8, 51, :)), 1));
+pd_below_late  = squeeze(mean(squeeze(erps(:, 9, 51, :)), 1));
+pd_above_early = squeeze(mean(squeeze(erps(:, 10, 51, :)), 1));
+pd_above_late  = squeeze(mean(squeeze(erps(:, 11, 51, :)), 1));
+plot(erp_times, pd_close_early, ':k', 'LineWidth', 1.5)
+hold on
+plot(erp_times, pd_close_late, '-k', 'LineWidth', 1.5)
+plot(erp_times, pd_below_early, ':r', 'LineWidth', 1.5)
+plot(erp_times, pd_below_late, '-r', 'LineWidth', 1.5)
+plot(erp_times, pd_above_early, ':c', 'LineWidth', 1.5)
+plot(erp_times, pd_above_late, '-c', 'LineWidth', 1.5)
+title('trajectory Pz')
+legend({'close-e', 'close-l','below-e', 'below-l', 'above-e', 'above-l'})
+hold off;
 
 % Build elec struct
 elec = struct();
@@ -179,34 +235,67 @@ cfg.keepindividual = 'yes';
 GA_above = ft_timelockgrandaverage(cfg, D{1, :});
 
 
-% Build GAs for main effect trajectories
+% Build GAs for main effect stage
 for s = 1 : length(subject_list)
     d = [];
     d.dimord = 'chan_time';
     d.label = elec.label;
     d.time = erp_times;
-    d.avg = squeeze(erps(s, 1, :, :));
+    d.avg = squeeze(erps(s, 4, :, :));
     D{s} = d;
 end
 cfg=[];
 cfg.keepindividual = 'yes';
-GA_close = ft_timelockgrandaverage(cfg, D{1, :});
+GA_early = ft_timelockgrandaverage(cfg, D{1, :});
 
 for s = 1 : length(subject_list)
     d = [];
     d.dimord = 'chan_time';
     d.label = elec.label;
     d.time = erp_times;
-    d.avg = squeeze(erps(s, 2, :, :));
+    d.avg = squeeze(erps(s, 5, :, :));
     D{s} = d;
 end
 cfg=[];
 cfg.keepindividual = 'yes';
-GA_below = ft_timelockgrandaverage(cfg, D{1, :});
+GA_late = ft_timelockgrandaverage(cfg, D{1, :});
 
+% Build GAs for interactions
+for s = 1 : length(subject_list)
+    d = [];
+    d.dimord = 'chan_time';
+    d.label = elec.label;
+    d.time = erp_times;
+    d.avg = squeeze(erps(s, 7, :, :)) - squeeze(erps(s, 6, :, :));
+    D{s} = d;
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_int_close = ft_timelockgrandaverage(cfg, D{1, :});
 
+for s = 1 : length(subject_list)
+    d = [];
+    d.dimord = 'chan_time';
+    d.label = elec.label;
+    d.time = erp_times;
+    d.avg = squeeze(erps(s, 9, :, :)) - squeeze(erps(s, 8, :, :));
+    D{s} = d;
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_int_below = ft_timelockgrandaverage(cfg, D{1, :});
 
-
+for s = 1 : length(subject_list)
+    d = [];
+    d.dimord = 'chan_time';
+    d.label = elec.label;
+    d.time = erp_times;
+    d.avg = squeeze(erps(s, 11, :, :)) - squeeze(erps(s, 10, :, :));
+    D{s} = d;
+end
+cfg=[];
+cfg.keepindividual = 'yes';
+GA_int_above = ft_timelockgrandaverage(cfg, D{1, :});
 
 % Prepare layout
 cfg      = [];
@@ -223,14 +312,14 @@ cfg.neighbours      = ft_prepare_neighbours(cfg, GA_above);
 neighbours = cfg.neighbours;
 
 % Testparams
-testalpha  = 0.05;
-voxelalpha  = 0.05;
+testalpha  = 0.025;
+voxelalpha  = 0.1;
 nperm = 1000;
 
 % Set config for within test of trajectory effect
 cfg = [];
 cfg.tail             = 1;
-cfg.statistic        = 'depsamplesFmultivariate';
+cfg.statistic        = 'depsamplesT';
 cfg.alpha            = testalpha;
 cfg.neighbours       = neighbours;
 cfg.minnbchan        = 2;
@@ -243,16 +332,124 @@ cfg.numrandomization = nperm;
 cfg.computecritval   = 'yes'; 
 cfg.ivar             = 1;
 cfg.uvar             = 2;
+cfg.design           = [ones(1, numel(subject_list)), 2 * ones(1, numel(subject_list));...
+                             1 : numel(subject_list), 1 : numel(subject_list)];
 
-% Set up design
-n_subjects = length(subject_list);
-design = zeros(2, n_subjects * 3);
-design(1, :) = [ones(1, n_subjects), ones(1, n_subjects) * 2, ones(1, n_subjects) * 3];
-design(2, :) = [1 : n_subjects, 1 : n_subjects, 1 : n_subjects];
-cfg.design = design;
+% The test for main effects trajectory
+[stat_trajectory_below_vs_above]  = ft_timelockstatistics(cfg, GA_below, GA_above);
+[stat_trajectory_below_vs_close]  = ft_timelockstatistics(cfg, GA_below, GA_close);
+[stat_trajectory_above_vs_close]  = ft_timelockstatistics(cfg, GA_above, GA_close);
 
-% The test
-[stat_traject]  = ft_timelockstatistics(cfg, GA_close, GA_below, GA_above);
+maxval = max([max(abs(stat_trajectory_below_vs_above.stat(:))),...
+          max(abs(stat_trajectory_below_vs_close.stat(:))),...
+          max(abs(stat_trajectory_above_vs_close.stat(:))),...
+              ]);
+
+% Plot time x space t-values
+figure;
+subplot(3, 1, 1)
+pd = stat_trajectory_below_vs_above.stat;
+contourf(stat_trajectory_below_vs_above.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_trajectory_below_vs_above.time, [1 : 65], stat_trajectory_below_vs_above.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('below vs above')
+hold off;
+
+subplot(3, 1, 2)
+pd = stat_trajectory_below_vs_close.stat;
+contourf(stat_trajectory_below_vs_close.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_trajectory_below_vs_close.time, [1 : 65], stat_trajectory_below_vs_close.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('below vs close')
+hold off;
+
+subplot(3, 1, 3)
+pd = stat_trajectory_above_vs_close.stat;
+contourf(stat_trajectory_above_vs_close.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_trajectory_above_vs_close.time, [1 : 65], stat_trajectory_above_vs_close.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('above vs close')
+hold off;
+
+% The test for main effect stage
+[stat_stage]  = ft_timelockstatistics(cfg, GA_early, GA_late);
+
+maxval = max(abs(stat_trajectory_below_vs_above.stat(:)));
+
+% Plot time x space t-values
+figure;
+pd = stat_stage.stat;
+contourf(stat_stage.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_stage.time, [1 : 65], stat_stage.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('early vs late')
+hold off;
+
+
+
+% The test for main effects trajectory
+[stat_interaction_below_vs_above]  = ft_timelockstatistics(cfg, GA_int_below, GA_int_above);
+[stat_interaction_below_vs_close]  = ft_timelockstatistics(cfg, GA_int_below, GA_int_close);
+[stat_interaction_above_vs_close]  = ft_timelockstatistics(cfg, GA_int_above, GA_int_close);
+
+maxval = max([max(abs(stat_interaction_below_vs_above.stat(:))),...
+              max(abs(stat_interaction_below_vs_close.stat(:))),...
+              max(abs(stat_interaction_above_vs_close.stat(:))),...
+              ]);
+
+% Plot time x space t-values
+figure;
+subplot(3, 1, 1)
+pd = stat_interaction_below_vs_above.stat;
+contourf(stat_interaction_below_vs_above.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_interaction_below_vs_above.time, [1 : 65], stat_interaction_below_vs_above.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('int below vs above')
+hold off;
+
+subplot(3, 1, 2)
+pd = stat_interaction_below_vs_close.stat;
+contourf(stat_interaction_below_vs_close.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_interaction_below_vs_close.time, [1 : 65], stat_interaction_below_vs_close.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('int below vs close')
+hold off;
+
+subplot(3, 1, 3)
+pd = stat_interaction_above_vs_close.stat;
+contourf(stat_interaction_above_vs_close.time, [1 :65], pd, 40, 'linecolor','none')
+hold on
+contour(stat_interaction_above_vs_close.time, [1 : 65], stat_interaction_above_vs_close.mask, 1, 'linecolor', 'k', 'LineWidth', 2)
+colormap('jet')
+set(gca, 'clim', [-maxval, maxval])
+colorbar;
+title('int above vs close')
+hold off;
+
+
+
+
+aa=bb
+
+
 
 % Set config for between test
 cfg = [];
@@ -269,6 +466,9 @@ cfg.clusterstatistic = 'maxsum';
 cfg.numrandomization = nperm;
 cfg.computecritval   = 'yes'; 
 cfg.ivar             = 1;
+cfg.uvar             = 2;
+cfg.design           = [ones(1, numel(subject_list)), 2 * ones(1, numel(subject_list)); 1 : numel(subject_list), 1 : numel(subject_list)];
+
 
 % Set up design
 cfg.design = group_idx;
