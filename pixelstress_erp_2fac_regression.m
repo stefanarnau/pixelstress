@@ -17,6 +17,7 @@ subject_list = {'9_1',...
                 '25_1',...
                 '26_1',...
                 '28_1',...
+                '30_1',...
                };
 
 % Init eeglab
@@ -42,30 +43,92 @@ for s = 1 : length(subject_list)
     % Load subject ERP data
     EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'all');
 
+    % New electrode order
+    new_order = [1, 2,...          % FP1 Fp2
+                 33, 34, 35, 36,...          % AF7 AF3 AF4 AF8 
+                 3, 37, 4, 38, 5, 39, 6, 40, 7,...   % F7 F5 F3 F1 Fz F2 F4 F6 F8
+                 41, 42, 8, 43, 9, 65, 10, 44, 11, 45, 46,...           % FT9 FT7 FC5 FC3 FC1 FCz FC2 FC4 FC6 FT8 FT10 
+                 12, 47, 13, 48, 14, 49, 15, 50, 16,...   % T7 C5 C3 C1 Cz C2 C4 C6 T8
+                 17, 51, 18, 52, 19, 53, 20, 54, 21, 55, 22,...           % TP9 TP7 CP5 CP3 CP1 CPz CP2 CP4 CP6 TP8 TP10
+                 23, 56, 24, 57, 25, 58, 26, 59, 27,... % P7 P5 P3 P1 Pz P2 P4 P6 P8
+                 28, 60, 61, 62, 63, 64, 32,...         % PO9 PO7 PO3 POz PO4 PO8 PO10
+                 29, 30, 31];           % O1 Oz O2
+
+    % Re-order channels
+    eeg_data = EEG.data(new_order, :, :);
+    chanlocs = EEG.chanlocs;
+    for ch = 1 : numel(EEG.chanlocs)
+        chanlocs(ch) = EEG.chanlocs(new_order(ch));
+    end
+
+
     % Get trial idx
-    idx_close = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 0;
-    idx_below = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
-    idx_above = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
-    
-    idx_early = EEG.trialinfo.sequence_nr >= 1 & EEG.trialinfo.sequence_nr <= 5;
-    idx_late  = EEG.trialinfo.sequence_nr >= 8 & EEG.trialinfo.sequence_nr <= 12;
+    idx_close = EEG.trialinfo.block_wiggleroom == 0;
+    idx_below = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
+    idx_above = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
 
-    % Get ERP
-    erps(s, 1, :, :) = squeeze(mean(EEG.data(:, :, idx_close), 3));
-    erps(s, 2, :, :) = squeeze(mean(EEG.data(:, :, idx_below), 3));
-    erps(s, 3, :, :) = squeeze(mean(EEG.data(:, :, idx_above), 3));
+    % Regression design matrices
+    desmat_total = [ones(EEG.trials, 1), EEG.trialinfo.sequence_nr];
+    desmat_close = [ones(sum(idx_close), 1), EEG.trialinfo.sequence_nr(idx_close)];
+    desmat_below = [ones(sum(idx_below), 1), EEG.trialinfo.sequence_nr(idx_below)];
+    desmat_above = [ones(sum(idx_above), 1), EEG.trialinfo.sequence_nr(idx_above)];
 
-    erps(s, 4, :, :) = squeeze(mean(EEG.data(:, :, idx_early), 3));
-    erps(s, 5, :, :) = squeeze(mean(EEG.data(:, :, idx_late), 3));
+    % Scale predictors
+    desmat_total(:, 2) = zscore(desmat_total(:, 2));
+    desmat_close(:, 2) = zscore(desmat_close(:, 2));
+    desmat_below(:, 2) = zscore(desmat_below(:, 2));
+    desmat_above(:, 2) = zscore(desmat_above(:, 2));
 
-    erps(s, 6, :, :) = squeeze(mean(EEG.data(:, :, idx_close & idx_early), 3));
-    erps(s, 7, :, :) = squeeze(mean(EEG.data(:, :, idx_close & idx_late), 3));
-    erps(s, 8, :, :) = squeeze(mean(EEG.data(:, :, idx_below & idx_early), 3));
-    erps(s, 9, :, :) = squeeze(mean(EEG.data(:, :, idx_below & idx_late), 3));
-    erps(s, 10, :, :) = squeeze(mean(EEG.data(:, :, idx_above & idx_early), 3));
-    erps(s, 11, :, :) = squeeze(mean(EEG.data(:, :, idx_above & idx_late), 3));
+    % Permute data to trials x times x channels
+    eeg_data_total = permute(EEG.data, [3, 2, 1]);
 
-    erp_times = EEG.times;
+    % Subset
+    eeg_data_close = eeg_data_total(idx_close, :, :);
+    eeg_data_below = eeg_data_total(idx_below, :, :);
+    eeg_data_above = eeg_data_total(idx_above, :, :);
+
+    % reshape
+    d_total = reshape(eeg_data_total, size(eeg_data_total, 1), size(eeg_data_total, 2) * size(eeg_data_total, 3));
+    d_close = reshape(eeg_data_close, size(eeg_data_close, 1), size(eeg_data_close, 2) * size(eeg_data_close, 3));
+    d_below = reshape(eeg_data_below, size(eeg_data_below, 1), size(eeg_data_below, 2) * size(eeg_data_below, 3));
+    d_above = reshape(eeg_data_above, size(eeg_data_above, 1), size(eeg_data_above, 2) * size(eeg_data_above, 3));
+
+    % Normalize
+    d_total = zscore(d_total, [], 1);
+    d_close = zscore(d_close, [], 1);
+    d_below = zscore(d_below, [], 1);
+    d_above = zscore(d_above, [], 1);
+
+    % OLS fit
+    tmp = (desmat_total' * desmat_total) \ desmat_total' * d_total;
+    coefs_total = reshape(squeeze(tmp(2, :)), [EEG.pnts, EEG.nbchan]);
+
+    tmp = (desmat_close' * desmat_close) \ desmat_close' * d_close;
+    coefs_close = reshape(squeeze(tmp(2, :)), [EEG.pnts, EEG.nbchan]);
+
+    tmp = (desmat_below' * desmat_below) \ desmat_below' * d_below;
+    coefs_below = reshape(squeeze(tmp(2, :)), [EEG.pnts, EEG.nbchan]);
+
+    tmp = (desmat_above' * desmat_above) \ desmat_above' * d_above;
+    coefs_above = reshape(squeeze(tmp(2, :)), [EEG.pnts, EEG.nbchan]);
+
+    figure()
+    subplot(3, 1, 1)
+    contourf(EEG.times, [1:65], coefs_close', 40, 'linecolor','none');
+    colorbar()
+    subplot(3, 1, 2)
+    contourf(EEG.times, [1:65], coefs_below', 40, 'linecolor','none');
+    colorbar()
+    subplot(3, 1, 3)
+    contourf(EEG.times, [1:65], coefs_above', 40, 'linecolor','none');
+    colorbar()
+
+
+    % Generate null hypothesis distribution data
+    fakedesmat = desmat;
+    fakedesmat(:, 2) = desmat(randperm(size(desmat, 1)), 2);
+    tmp = (fakedesmat' * fakedesmat) \ fakedesmat' * d;
+    tot_fak.powspctrm(ch, :, :) = reshape(squeeze(tmp(2, :)), [numel(tf_freqs), numel(prune_time)]);
 
 end
 
@@ -88,7 +151,7 @@ for ch = 1 : numel(EEG.chanlocs)
 end
 
 % Crop in time
-time_idx = EEG.times >= -1200 & EEG.times <= 50;
+time_idx = EEG.times >= -1600 & EEG.times <= 50;
 erp_times = EEG.times(time_idx);
 erps = erps(:, :, :, time_idx);
 
@@ -165,6 +228,8 @@ plot(erp_times, pd_above_late, '-c', 'LineWidth', 1.5)
 title('trajectory Pz')
 legend({'close-e', 'close-l','below-e', 'below-l', 'above-e', 'above-l'})
 hold off;
+
+aa = bb;
 
 % Build elec struct
 elec = struct();
