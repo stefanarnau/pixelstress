@@ -72,6 +72,8 @@ for s = 1 : length(subject_list)
     % Load subject ERP data
     EEG = pop_loadset('filename', ['vp_', subject_list{s}(1 : end - 2), '_cleaned_erp.set'], 'filepath', PATH_AUTOCLEANED, 'loadmode', 'all');
 
+    EEG = pop_rmbase(EEG, [-1700, -1300]);
+
     % New electrode order
     new_order = [1, 2,...          % FP1 Fp2
                  33, 34, 35, 36,...          % AF7 AF3 AF4 AF8 
