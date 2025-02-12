@@ -45,8 +45,8 @@ addpath(PATH_EEGLAB);
 eeglab;
 
 % Result matrices
-res_rt = [];
-res_acc = [];
+data = [];
+counter = 0;
 
 % Loop subjects and calculate condition ERPs
 for s = 1 : length(subject_list)
@@ -57,55 +57,221 @@ for s = 1 : length(subject_list)
     % Get id
     id = EEG.trialinfo.id(1);
 
-    % Get trial idx
-    idx_close = EEG.trialinfo.block_wiggleroom == 0;
-    idx_below = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1;
-    idx_above = EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1;
+    % Get trajectory idx (close, below, above)
+    idx_trajectories = {EEG.trialinfo.block_wiggleroom == 0,...
+                        EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1,...
+                        EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1};
 
-    % Iterate blocks
-    for bl = 1 : 8
+    % Add column to trialinfo: trial nr in block
+    EEG.trialinfo.trial_nr_in_block = ((EEG.trialinfo.sequence_nr - 1) * 8) + EEG.trialinfo.trial_nr;
 
-        % get block idx
-        block_idx = EEG.trialinfo.block_nr == bl;
+    % Get all trialnumbers used
+    tnums = unique(EEG.trialinfo.trial_nr_in_block);
 
-        % Get correct idx
-        idx_correct = EEG.trialinfo.accuracy == 1 & EEG.trialinfo.sequence_nr > 4;
+    % Iterate trajectories
+    for traj = 1 : 3
 
-        % Get rt
-        rt = mean(EEG.trialinfo.rt(block_idx & idx_correct));
+        % Iterate sequences
+        for seq = 1 : 12
 
-        % Get accuracy
-        acc = sum(idx_correct & block_idx)  / sum(block_idx);
+            % get sequence idx
+            idx_condition = idx_trajectories{traj} & EEG.trialinfo.sequence_nr == seq;
 
-        res_rt(s, bl) = rt;
-        res_acc(s, bl) = acc;
+            % Get correct idx
+            idx_correct = EEG.trialinfo.accuracy == 1;
+
+            % Get rt
+            rt = mean(EEG.trialinfo.rt(idx_condition & idx_correct));
+
+            % Get accuracy
+            acc = sum(idx_correct & idx_condition)  / sum(idx_condition);
+
+            % Save
+            counter = counter + 1;
+            data(counter, :) = [id, traj, seq, rt, acc];
+
+        end
 
     end
-
-    res_rt(s, 9)  = mean(EEG.trialinfo.rt(idx_close & idx_correct));
-    res_rt(s, 10) = mean(EEG.trialinfo.rt(idx_below & idx_correct));
-    res_rt(s, 11) = mean(EEG.trialinfo.rt(idx_above & idx_correct));
-
-    res_acc(s, 9)  = sum(idx_correct & idx_close)  / sum(idx_close);
-    res_acc(s, 10) = sum(idx_correct & idx_below)  / sum(idx_below);
-    res_acc(s, 11) = sum(idx_correct & idx_above)  / sum(idx_above);
-
 end
 
-% Plot blocks
-figure()
-subplot(2, 1, 1)
-plot(1:8, res_rt(:, 1 : 8));
-hold on
-plot(1 : 8, mean(res_rt(:, 1 : 8)), 'k', 'LineWidth', 2)
-subplot(2, 1, 2)
-plot(1:8, res_acc(:, 1 : 8));
+% Add inverse efficiency to matrix
+data(:, 6) = data(:, 4) ./ data(:, 5);
 
-% Plot conditions
-figure()
-subplot(2, 1, 1)
-plot(1:3, res_rt(:, 9 : 11));
-hold on
-plot(1 : 3, mean(res_rt(:, 9 : 11)), 'k', 'LineWidth', 2)
-subplot(2, 1, 2)
-plot(1:3, res_acc(:, 9 : 11));
+
+% Create a table from your data matrix
+tbl = array2table(data, 'VariableNames', {'subject', 'trajectory', 'sequence', 'rt', 'acc', 'ie'});
+
+% Convert categorical factor to categorical type
+tbl.trajectory = categorical(tbl.trajectory);
+
+% Fit the mixed linear model rt
+lme = fitlme(tbl, 'rt ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+disp(lme);
+anova(lme);
+fixedEffects = lme.fixedEffects;
+%randomEffects = randomEffects(lme);
+plotResiduals(lme);
+
+% Fit the mixed linear model acc
+lme = fitlme(tbl, 'acc ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+disp(lme);
+anova(lme);
+fixedEffects = lme.fixedEffects;
+%randomEffects = randomEffects(lme);
+plotResiduals(lme);
+
+% Fit the mixed linear model ie
+lme = fitlme(tbl, 'ie ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+disp(lme);
+anova(lme);
+fixedEffects = lme.fixedEffects;
+%randomEffects = randomEffects(lme);
+plotResiduals(lme);
+
+
+
+
+
+
+% Plot
+figure;
+subplot(1, 3, 1)
+
+% Get unique categories and continuous factor values
+categories = unique(tbl.trajectory);
+uniqueContFactors = unique(tbl.sequence);
+
+% Initialize variables for storing averaged data
+meanResponses = zeros(length(uniqueContFactors), length(categories));
+stdResponses = zeros(length(uniqueContFactors), length(categories));
+
+% Calculate mean and standard deviation for each category and continuous factor
+for i = 1:length(categories)
+    for j = 1:length(uniqueContFactors)
+        % Filter data for the current category and continuous factor value
+        subset = tbl(tbl.trajectory == categories(i) & tbl.sequence == uniqueContFactors(j), :);
+        
+        % Compute mean and standard deviation of the response
+        meanResponses(j, i) = nanmean(subset.rt);
+        stdResponses(j, i) = nanstd(subset.rt);
+    end
+end
+
+% Create a figure
+
+hold on;
+
+% Plot lines with error bars for each category
+for i = 1:length(categories)
+    errorbar(uniqueContFactors, meanResponses(:, i), stdResponses(:, i), ...
+        'LineWidth', 2, 'DisplayName', char(categories(i)));
+end
+
+% Add labels and title
+xlabel('Continuous Factor');
+ylabel('Response');
+title('Response vs. Continuous Factor by Category (Averaged Across Subjects)');
+
+% Add legend
+legend('Location', 'best');
+
+% Add grid
+grid on;
+
+% Hold off to end the plot
+hold off;
+
+
+subplot(1, 3, 2)
+
+% Get unique categories and continuous factor values
+categories = unique(tbl.trajectory);
+uniqueContFactors = unique(tbl.sequence);
+
+% Initialize variables for storing averaged data
+meanResponses = zeros(length(uniqueContFactors), length(categories));
+stdResponses = zeros(length(uniqueContFactors), length(categories));
+
+% Calculate mean and standard deviation for each category and continuous factor
+for i = 1:length(categories)
+    for j = 1:length(uniqueContFactors)
+        % Filter data for the current category and continuous factor value
+        subset = tbl(tbl.trajectory == categories(i) & tbl.sequence == uniqueContFactors(j), :);
+        
+        % Compute mean and standard deviation of the response
+        meanResponses(j, i) = nanmean(subset.acc);
+        stdResponses(j, i) = nanstd(subset.acc);
+    end
+end
+
+% Create a figure
+
+hold on;
+
+% Plot lines with error bars for each category
+for i = 1:length(categories)
+    errorbar(uniqueContFactors, meanResponses(:, i), stdResponses(:, i), ...
+        'LineWidth', 2, 'DisplayName', char(categories(i)));
+end
+
+% Add labels and title
+xlabel('Continuous Factor');
+ylabel('Response');
+title('Response vs. Continuous Factor by Category (Averaged Across Subjects)');
+
+% Add legend
+legend('Location', 'best');
+
+% Add grid
+grid on;
+
+% Hold off to end the plot
+hold off;
+
+
+subplot(1, 3, 3)
+
+% Get unique categories and continuous factor values
+categories = unique(tbl.trajectory);
+uniqueContFactors = unique(tbl.sequence);
+
+% Initialize variables for storing averaged data
+meanResponses = zeros(length(uniqueContFactors), length(categories));
+stdResponses = zeros(length(uniqueContFactors), length(categories));
+
+% Calculate mean and standard deviation for each category and continuous factor
+for i = 1:length(categories)
+    for j = 1:length(uniqueContFactors)
+        % Filter data for the current category and continuous factor value
+        subset = tbl(tbl.trajectory == categories(i) & tbl.sequence == uniqueContFactors(j), :);
+        
+        % Compute mean and standard deviation of the response
+        meanResponses(j, i) = nanmean(subset.ie);
+        stdResponses(j, i) = nanstd(subset.ie);
+    end
+end
+
+% Create a figure
+
+hold on;
+
+% Plot lines with error bars for each category
+for i = 1:length(categories)
+    errorbar(uniqueContFactors, meanResponses(:, i), stdResponses(:, i), ...
+        'LineWidth', 2, 'DisplayName', char(categories(i)));
+end
+
+% Add labels and title
+xlabel('Continuous Factor');
+ylabel('Response');
+title('Response vs. Continuous Factor by Category (Averaged Across Subjects)');
+
+% Add legend
+legend('Location', 'best');
+
+% Add grid
+grid on;
+
+% Hold off to end the plot
+hold off;
