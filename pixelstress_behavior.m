@@ -2,7 +2,7 @@ clear all;
 
 % PATH VARS
 PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
-PATH_EEGLAB = '/home/plkn/eeglab2024.0/';
+PATH_EEGLAB = '/home/plkn/eeglab2025.0.0/';
 
 % The list
 subject_list = {'9_1',...
@@ -38,6 +38,35 @@ subject_list = {'9_1',...
                 '84_1',...
                 '85_1',...
                 '86_1',...
+                '87_1',...
+                '7_2',...
+                '8_2',...
+                '11_2',...
+                '12_2',...
+                '15_2',...
+                '16_2',...
+                '20_2',...
+                '22_2',...
+                '24_2',...
+                '27_2',...
+                '29_2',...
+                '31_2',...
+                '33_2',...
+                '34_2',...
+                '37_2',...
+                '39_2',...
+                '41_2',...
+                '42_2',...
+                '45_2',...
+                '46_2',...
+                '51_2',...
+                '53_2',...
+                '54_2',...
+                '56_2',...
+                '59_2',...
+                '60_2',...
+                '78_2',...
+                '80_2',...
                };
 
 % Init eeglab
@@ -57,40 +86,32 @@ for s = 1 : length(subject_list)
     % Get id
     id = EEG.trialinfo.id(1);
 
+    % Get group
+    group = str2num(subject_list{s}(end));
+
     % Get trajectory idx (close, below, above)
     idx_trajectories = {EEG.trialinfo.block_wiggleroom == 0,...
                         EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == -1,...
                         EEG.trialinfo.block_wiggleroom == 1 & EEG.trialinfo.block_outcome == 1};
 
-    % Add column to trialinfo: trial nr in block
-    EEG.trialinfo.trial_nr_in_block = ((EEG.trialinfo.sequence_nr - 1) * 8) + EEG.trialinfo.trial_nr;
-
-    % Get all trialnumbers used
-    tnums = unique(EEG.trialinfo.trial_nr_in_block);
-
     % Iterate trajectories
     for traj = 1 : 3
 
-        % Iterate sequences
-        for seq = 1 : 12
+        % Get correct idx
+        idx_correct = EEG.trialinfo.accuracy == 1;
 
-            % get sequence idx
-            idx_condition = idx_trajectories{traj} & EEG.trialinfo.sequence_nr == seq;
+        % Exclude start of block
+        idx_nostart = EEG.trialinfo.sequence_nr > 6;
 
-            % Get correct idx
-            idx_correct = EEG.trialinfo.accuracy == 1;
+        % Get rt
+        rt = mean(EEG.trialinfo.rt( idx_trajectories{traj} & idx_correct & idx_nostart));
 
-            % Get rt
-            rt = mean(EEG.trialinfo.rt(idx_condition & idx_correct));
+        % Get accuracy
+        acc = sum(idx_correct & idx_nostart &  idx_trajectories{traj})  / sum( idx_trajectories{traj});
 
-            % Get accuracy
-            acc = sum(idx_correct & idx_condition)  / sum(idx_condition);
-
-            % Save
-            counter = counter + 1;
-            data(counter, :) = [id, traj, seq, rt, acc];
-
-        end
+        % Save
+        counter = counter + 1;
+        data(counter, :) = [id, group, traj, rt, acc];
 
     end
 end
@@ -100,21 +121,23 @@ data(:, 6) = data(:, 4) ./ data(:, 5);
 
 
 % Create a table from your data matrix
-tbl = array2table(data, 'VariableNames', {'subject', 'trajectory', 'sequence', 'rt', 'acc', 'ie'});
+tbl = array2table(data, 'VariableNames', {'subject', 'group', 'trajectory', 'rt', 'acc', 'ie'});
 
 % Convert categorical factor to categorical type
+tbl.group = categorical(tbl.group);
 tbl.trajectory = categorical(tbl.trajectory);
 
 % Fit the mixed linear model rt
-lme = fitlme(tbl, 'rt ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+lme = fitlme(tbl, 'rt ~ group + trajectory + group*trajectory + (1|subject) + (1|subject:group)');
 disp(lme);
 anova(lme);
 fixedEffects = lme.fixedEffects;
 %randomEffects = randomEffects(lme);
 plotResiduals(lme);
 
+
 % Fit the mixed linear model acc
-lme = fitlme(tbl, 'acc ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+lme = fitlme(tbl, 'acc ~ group + trajectory + group*trajectory + (1|subject) + (1|subject:group)');
 disp(lme);
 anova(lme);
 fixedEffects = lme.fixedEffects;
@@ -122,7 +145,7 @@ fixedEffects = lme.fixedEffects;
 plotResiduals(lme);
 
 % Fit the mixed linear model ie
-lme = fitlme(tbl, 'ie ~ trajectory + sequence + trajectory*sequence + (1|subject)');
+lme = fitlme(tbl, 'ie ~ group + trajectory + group*trajectory + (1|subject) + (1|subject:group)');
 disp(lme);
 anova(lme);
 fixedEffects = lme.fixedEffects;
@@ -130,9 +153,14 @@ fixedEffects = lme.fixedEffects;
 plotResiduals(lme);
 
 
+avg_data = groupsummary(tbl, {'trajectory', 'group'}, 'mean', 'rt');
 
 
-
+figure;
+plot(avg_data.trajectory, avg_data.mean_rt, 'LineWidth', 2, 'Marker', 'o');
+xlabel('group');
+ylabel('Average Dependent Variable');
+title('Average Dependent Variable by Factor 1 and Factor 2');
 
 % Plot
 figure;
