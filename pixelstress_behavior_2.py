@@ -16,6 +16,7 @@ import scipy.stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pingouin as pg
+import statsmodels.formula.api as smf
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -30,38 +31,142 @@ df = []
 
 # Collect datasets
 for dataset in datasets:
-    df.append(pd.read_csv(dataset))
-    
+
+    # Read data
+    df_tmp = pd.read_csv(dataset)
+
+    # Drop first sequences
+    df_tmp = df_tmp.drop(df_tmp[df_tmp.sequence_nr <= 1].index)
+
+    # Add new variable sequence number total
+    df_tmp = df_tmp.assign(sequence_nr_total="none")
+    df_tmp.sequence_nr_total = df_tmp.sequence_nr + (df_tmp.block_nr - 1) * 12
+
+    # Create df for correct only
+    df_tmp_correct_only = df_tmp.drop(df_tmp[df_tmp.accuracy != 1].index)
+
+    # Add new variable trajectory
+    df_tmp_correct_only = df_tmp_correct_only.assign(trajectory=99)
+    df_tmp_correct_only.trajectory[df_tmp_correct_only.block_wiggleroom == 0] = 0
+    df_tmp_correct_only.trajectory[
+        (df_tmp_correct_only.block_wiggleroom == 1)
+        & (df_tmp_correct_only.block_outcome == -1)
+    ] = -1
+    df_tmp_correct_only.trajectory[
+        (df_tmp_correct_only.block_wiggleroom == 1)
+        & (df_tmp_correct_only.block_outcome == 1)
+    ] = +1
+
+    # Get rt for conditions
+    df_tmp_ave = (
+        df_tmp_correct_only.groupby(["sequence_nr_total"])[
+            "id",
+            "session_condition",
+            "block_wiggleroom",
+            "block_outcome",
+            "trajectory",
+            "last_feedback",
+            "last_feedback_scaled",
+            "block_nr",
+            "sequence_nr",
+            "rt",
+        ]
+        .mean()
+        .reset_index()
+    )
+
+    # Get accuracy
+    series_n_all = (
+        df_tmp.groupby(["sequence_nr_total"]).size().reset_index(name="acc")["acc"]
+    )
+    series_n_correct = (
+        df_tmp_correct_only.groupby(["sequence_nr_total"])
+        .size()
+        .reset_index(name="acc")["acc"]
+    )
+    series_accuracy = series_n_correct / series_n_all
+
+    # Compute inverse efficiency
+    series_ie = df_tmp_ave["rt"] / series_accuracy
+
+    # Combine
+    df_tmp_ave["acc"] = series_accuracy
+    df_tmp_ave["ie"] = series_ie
+
+    # Collect
+    df.append(df_tmp_ave)
+
 # Concatenate datasets
 df = pd.concat(df).reset_index()
 
-# Add new variable trajectory
-df = df.assign(trajectory="none")
-df.trajectory[df.block_wiggleroom == 0] = "close"
-df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
-df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "above"
 
-# Drop early sequences
-df = df.drop(df[df.sequence_nr <= 4 ].index)
+model = smf.mixedlm("ie ~ last_feedback_scaled * sequence_nr * session_condition", 
+                    data=df, 
+                    groups="id",
+                    re_formula="~last_feedback_scaled + sequence_nr")
+
+
+results = model.fit()
+
+# Extract the fixed effects results
+fe_results = results.fe_params
+se = results.bse_fe
+
+# Calculate t-statistics
+t_stats = fe_results / se
+
+# Calculate p-values
+p_values = [2 * (1 - scipy.stats.t.cdf(abs(t), df=results.df_resid)) for t in t_stats]
+
+# Create a DataFrame with coefficients and p-values
+coef_df = pd.DataFrame(
+    {
+        "coef": fe_results,
+        "std err": se,
+        "t": t_stats,
+        "P>|t|": p_values,
+        "[0.025": results.conf_int()[0:8][0],
+        "0.975]": results.conf_int()[0:8][1],
+    }
+)
+
+jitter = np.random.normal(0, 0.3, size=len(df))
+g = sns.relplot(
+    data=df,
+    x=df["sequence_nr"] + jitter,
+    y="rt",
+    hue="last_feedback_scaled",
+    col="session_condition",
+    kind="scatter",
+    palette="viridis",
+    height=5,
+    aspect=1.2,
+    col_wrap=2,
+)
+
+# Add a color bar
+plt.colorbar(g.axes[0].collections[0], label="rt", ax=g.axes)
+
+# Adjust labels and title
+g.set_axis_labels("Continuous Variable 1", "Continuous Variable 2")
+g.fig.suptitle("Relationship between Variables", y=1.02)
+
+plt.show()
+
+aa = bb
 
 # Create df for correct only
 df_correct_only = df.drop(df[df.accuracy != 1].index)
 
 # Get rt for conditions
 df_rt = (
-    df_correct_only.groupby(["id", "trajectory"])["rt"]
-    .mean()
-    .reset_index(name="ms")
+    df_correct_only.groupby(["id", "trajectory"])["rt"].mean().reset_index(name="ms")
 )
 
 # Get accuracy for conditions
-series_n_all = (
-    df.groupby(["id", "trajectory"]).size().reset_index(name="acc")["acc"]
-)
+series_n_all = df.groupby(["id", "trajectory"]).size().reset_index(name="acc")["acc"]
 series_n_correct = (
-    df_correct_only.groupby(["id", "trajectory"])
-    .size()
-    .reset_index(name="acc")["acc"]
+    df_correct_only.groupby(["id", "trajectory"]).size().reset_index(name="acc")["acc"]
 )
 series_accuracy = series_n_correct / series_n_all
 
@@ -89,7 +194,9 @@ df_rt["group"] = df_rt["group"].astype("category")
 df_rt["trajectory"] = df_rt["trajectory"].astype("category")
 
 
-aov = pg.mixed_anova(data=df_rt, dv='ms', between='group', within='trajectory', subject='id')
+aov = pg.mixed_anova(
+    data=df_rt, dv="ms", between="group", within="trajectory", subject="id"
+)
 print(aov)
 
 
@@ -138,9 +245,4 @@ g.despine(left=True)
 
 
 # Save dataframe
-#df_rt.to_csv(os.path.join(path_stats, "behavioral data.csv"))
-
-
-
-
-
+# df_rt.to_csv(os.path.join(path_stats, "behavioral data.csv"))
