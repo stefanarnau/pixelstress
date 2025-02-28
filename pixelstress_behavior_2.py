@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pingouin as pg
 import statsmodels.formula.api as smf
+import sklearn.linear_model
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -27,7 +28,8 @@ path_stats = "/mnt/data_dump/pixelstress/stats/"
 datasets = glob.glob(f"{path_in}/*erp_trialinfo.csv")
 
 # Collector bin for all trials
-df = []
+df_sequences = []
+df_single_trial = []
 
 # Collect datasets
 for dataset in datasets:
@@ -37,6 +39,18 @@ for dataset in datasets:
 
     # Drop first sequences
     df_tmp = df_tmp.drop(df_tmp[df_tmp.sequence_nr <= 1].index)
+    
+    # Drop outliers
+    z_scores = np.abs((df_tmp['rt'] - df_tmp['rt'].mean()) / df_tmp['rt'].std())
+    df_tmp = df_tmp[z_scores < 2]
+    
+    # Assuming your DataFrame is called 'df'
+    X = df_tmp[['trial_difficulty']].values
+    y = df_tmp['rt'].values
+    model = sklearn.linear_model.LinearRegression()
+    model.fit(X, y)
+    y_pred = model.predict(X)
+    df_tmp['rt_detrended'] = y - y_pred
 
     # Add new variable sequence number total
     df_tmp = df_tmp.assign(sequence_nr_total="none")
@@ -57,7 +71,7 @@ for dataset in datasets:
         & (df_tmp_correct_only.block_outcome == 1)
     ] = +1
 
-    # Get rt for conditions
+    # Group variables by sequences and get rt for conditions 
     df_tmp_ave = (
         df_tmp_correct_only.groupby(["sequence_nr_total"])[
             "id",
@@ -70,6 +84,7 @@ for dataset in datasets:
             "block_nr",
             "sequence_nr",
             "rt",
+            "rt_detrended",
         ]
         .mean()
         .reset_index()
@@ -94,16 +109,16 @@ for dataset in datasets:
     df_tmp_ave["ie"] = series_ie
 
     # Collect
-    df.append(df_tmp_ave)
+    df_single_trial.append(df_tmp_ave)
+    df_sequences.append(df_tmp_ave)
 
 # Concatenate datasets
-df = pd.concat(df).reset_index()
+df_sequences = pd.concat(df_sequences).reset_index()
 
 
-model = smf.mixedlm("ie ~ last_feedback_scaled * sequence_nr * session_condition", 
+model = smf.mixedlm("rt_detrended ~ last_feedback_scaled*sequence_nr*session_condition", 
                     data=df, 
-                    groups="id",
-                    re_formula="~last_feedback_scaled + sequence_nr")
+                    groups="id")
 
 
 results = model.fit()
@@ -125,8 +140,8 @@ coef_df = pd.DataFrame(
         "std err": se,
         "t": t_stats,
         "P>|t|": p_values,
-        "[0.025": results.conf_int()[0:8][0],
-        "0.975]": results.conf_int()[0:8][1],
+        #"[0.025": results.conf_int()[0],
+        #"0.975]": results.conf_int()[1],
     }
 )
 
@@ -134,7 +149,7 @@ jitter = np.random.normal(0, 0.3, size=len(df))
 g = sns.relplot(
     data=df,
     x=df["sequence_nr"] + jitter,
-    y="rt",
+    y="rt_detrended",
     hue="last_feedback_scaled",
     col="session_condition",
     kind="scatter",
