@@ -133,11 +133,14 @@ df_sequences = pd.concat(df_sequences).reset_index()
 # Make categorial
 df_sequences["session_condition"] = pd.Categorical(df_sequences["session_condition"])
 
+# Select electrodes
+chans = ["erp_Cz", "erp_C1", "erp_C2"]
+
+
 # Select time window
 time_idx = (erp_times >= -0.6) & (erp_times <= 0)
 
-# Select electrodes
-chans = ["erp_Cz", "erp_C1", "erp_C2"]
+
 
 # Iterate rows and calculate erp averages for time window and defined channels
 values = []
@@ -152,15 +155,38 @@ for i in range(len(df_sequences)):
 # Add to df
 df_sequences = df_sequences.assign(cnv=values)
 
+# Get binned versions of feedback
+df_sequences["feedback"] = pd.cut(
+    df_sequences["last_feedback_scaled"],
+    bins=3,
+    labels=["low", "mid", "high"],
+)
+
+# Get binned versions of feedback
+df_sequences["deadline"] = pd.cut(
+    df_sequences["sequence_nr"],
+    bins=2,
+    labels=["far", "close"],
+)
+
+#df_sequences['feedback'] = df_sequences['feedback'].astype(float)
+
 # Linear mixed model
 model = smf.mixedlm(
-    "cnv ~ last_feedback_scaled*session_condition*sequence_nr",
+    "cnv ~ feedback*session_condition*deadline",
     data=df_sequences,
     groups="id",
 )
 results = model.fit()
 results.summary()
 
+
+
+sns.relplot(
+    data=df_sequences, x="deadline", y="cnv",
+    col="session_condition", hue="feedback",
+    kind="line"
+)
 
 
 # Plot
@@ -176,52 +202,75 @@ sns.lmplot(
 )
 
 
-
-
-
 # Plot main effect sequence_nr
 
 # Group by sequence nr
-grouped = df_sequences.groupby("sequence_nr").agg({
-    col: lambda x: np.mean(x) for col in chans
-}).reset_index()
+grouped = (
+    df_sequences.groupby("sequence_nr")
+    .agg({col: lambda x: np.mean(x) for col in chans})
+    .reset_index()
+)
+
 
 def average_vectors(row):
     vectors = [row[chan] for chan in chans]
     return np.mean(vectors, axis=0)
 
-grouped['average'] = grouped.apply(average_vectors, axis=1)
+
+grouped["average"] = grouped.apply(average_vectors, axis=1)
 
 # Create a figure and axis
 fig, ax = plt.subplots(figsize=(12, 6))
 
 # Create a color map
-cmap = plt.get_cmap('rocket')
+cmap = plt.get_cmap("rocket")
 norm = Normalize(vmin=grouped["sequence_nr"].min(), vmax=grouped["sequence_nr"].max())
 
 # Plot each averaged vector
 for _, row in grouped.iterrows():
     color = cmap(norm(row["sequence_nr"]))
-    ax.plot(erp_times, row['average'], color=color, alpha=0.7, label=f"Fish: {row['sequence_nr']}")
+    ax.plot(
+        erp_times,
+        row["average"],
+        color=color,
+        alpha=0.7,
+        label=f"Fish: {row['sequence_nr']}",
+    )
 
 # Add a colorbar
 sm = ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
 cbar = plt.colorbar(sm, ax=ax)
-cbar.set_label('sequence nr')
+cbar.set_label("sequence nr")
 
 # Set labels and title
-ax.set_xlabel('ms')
-ax.set_ylabel('mV')
-ax.set_title('ERP by sequence nr')
+ax.set_xlabel("ms")
+ax.set_ylabel("mV")
+ax.set_title("ERP by sequence nr")
 
 plt.tight_layout()
 plt.show()
 
 
+# Plot
 
 
 
+pd1 = df_sequences[df_sequences['session_condition'] == 1].pivot_table(index='feedback', columns='sequence_nr', values='cnv', aggfunc='mean')
+pd2 = df_sequences[df_sequences['session_condition'] == 2].pivot_table(index='feedback', columns='sequence_nr', values='cnv', aggfunc='mean')
 
 
+# Create subplots with 1 row and 2 columns
+fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
+# Plot the first heatmap
+sns.heatmap(pd1, ax=axes[0], cmap="RdPu_r", annot=True, vmin=-2.8, vmax=-0.5)
+axes[0].set_title("experimental")
+
+# Plot the second heatmap
+sns.heatmap(pd2, ax=axes[1], cmap="RdPu_r", annot=True, vmin=-2.8, vmax=-0.5)
+axes[1].set_title("control")
+
+# Adjust layout and display the plots
+plt.tight_layout()
+plt.show()
