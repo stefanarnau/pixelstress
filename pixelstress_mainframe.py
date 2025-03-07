@@ -14,7 +14,6 @@ import sklearn.linear_model
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
 path_df = "/mnt/data_dump/pixelstress/dataframe/"
-path_in = "/mnt/data_dump/pixelstress/todo/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*erp.set")
