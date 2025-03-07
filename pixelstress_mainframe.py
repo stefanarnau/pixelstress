@@ -13,11 +13,17 @@ import sklearn.linear_model
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
-path_plot = "/mnt/data_dump/pixelstress/plots/"
-path_stats = "/mnt/data_dump/pixelstress/stats/"
+path_df = "/mnt/data_dump/pixelstress/dataframe/"
+path_in = "/mnt/data_dump/pixelstress/todo/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*erp.set")
+
+# Load channel labels
+channel_labels = open("/home/plkn/repos/pixelstress/chanlabels_pixelstress.txt", "r").read().split("\n")[:-1]
+
+# Create info
+info = mne.create_info(channel_labels, 200, ch_types='eeg', verbose=None)
 
 # Collector bin for all trials
 df_sequences = []
@@ -34,7 +40,7 @@ for dataset in datasets:
     erp_data = np.transpose(scipy.io.loadmat(dataset)["data"], [2, 0, 1])
 
     # Get erp times
-    erp_times = scipy.io.loadmat(dataset)["times"]
+    erp_times = scipy.io.loadmat(dataset)["times"].ravel()
 
     # Read tf trialinfo
     df_tf = pd.read_csv(dataset.split("_cleaned")[0] + "_tf_trialinfo.csv")
@@ -45,14 +51,23 @@ for dataset in datasets:
     )
 
     # Load tf times
-    tf_times = scipy.io.loadmat(dataset.split("_erp.set")[0] + "_tf.set")["times"]
-
-    # Prepare behavior based on TF trialinfo =============================================================================
-
+    tf_times = scipy.io.loadmat(dataset.split("_erp.set")[0] + "_tf.set")["times"].ravel()
+    
     # Drop first sequences
+    idx_not_first_sequences = (df_erp.sequence_nr != 1).values
+    df_erp = df_erp[idx_not_first_sequences]
+    erp_data = erp_data[idx_not_first_sequences, :, :]
     idx_not_first_sequences = (df_tf.sequence_nr != 1).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
+    
+    # Add new variable sequence number total
+    df_erp = df_erp.assign(sequence_nr_total="none")
+    df_erp.sequence_nr_total = df_erp.sequence_nr + (df_erp.block_nr - 1) * 12
+    df_tf = df_tf.assign(sequence_nr_total="none")
+    df_tf.sequence_nr_total = df_tf.sequence_nr + (df_tf.block_nr - 1) * 12
+
+    # Prepare behavior based on TF trialinfo =============================================================================
 
     # Remove trial difficulty confound using linear regression
     X = df_tf[["trial_difficulty"]].values
@@ -61,10 +76,6 @@ for dataset in datasets:
     model.fit(X, y)
     y_pred = model.predict(X)
     df_tf["rt_detrended"] = y - y_pred
-
-    # Add new variable sequence number total
-    df_tf = df_tf.assign(sequence_nr_total="none")
-    df_tf.sequence_nr_total = df_tf.sequence_nr + (df_tf.block_nr - 1) * 12
 
     # Exclude trials belonging to sequences from which less than 5 trials are left
     trial_counts = df_tf["sequence_nr_total"].value_counts()
@@ -115,51 +126,164 @@ for dataset in datasets:
         "above"
     )
 
-    # Iterate all sequences
+    # Create erp columns
+    df_out["erp_F"] = None
+    df_out["erp_FC"] = None
+    df_out["erp_C"] = None
+    df_out["seq_trial_n_erp"] = None
+    
+    # Collector lists
     erps_F = []
     erps_FC = []
     erps_C = []
+    seq_trial_n_erp = []
 
     # Iterate sequences and average erps
-    for seq in set(df_out["sequence_nr_total"].values):
+    for row_idx, seq_total in enumerate(df_out["sequence_nr_total"].values):
+        
+        # Get sequence indices in erp data
+        seq_idx = df_erp["sequence_nr_total"].values == seq_total
 
+        # Collect number of trials for sequences
+        seq_trial_n_erp.append(sum(seq_idx))
+        
+        # If no trial in erp data for sequence remains...
+        if sum(seq_idx) == 0:
+            
+            erps_F.append(np.nan)
+            erps_FC.append(np.nan)
+            erps_C.append(np.nan)
+            continue
+        
         # Get sequence erps
-        eeg_seq = eeg_data[df_out["sequence_nr_total"].values == seq, :, :].mean(axis=0)
+        erp_seq = erp_data[seq_idx, :, :].mean(axis=0)
 
         # Get midline erps
-        erps_F.append(eeg_data[idx_seq, [4, 37, 38], :].mean(axis=0))
-        erps_FC.append(eeg_data[idx_seq, [64, 8, 9], :].mean(axis=0))
-        erps_C.append(eeg_data[idx_seq, [13, 47, 48], :].mean(axis=0))
+        erps_F.append(erp_seq[[4, 37, 38], :].mean(axis=0))
+        erps_FC.append(erp_seq[[64, 8, 9], :].mean(axis=0))
+        erps_C.append(erp_seq[[13, 47, 48], :].mean(axis=0))
+        
+    df_out["erp_F"] = erps_F
+    df_out["erp_FC"] = erps_FC
+    df_out["erp_C"] = erps_C
+    df_out["seq_trial_n_erp"] = seq_trial_n_erp
 
-    # Save erps to dataframe
-    df_tmp_ave = df_tmp_ave.assign(erp_F=pd.Series(erps_F))
-    df_tmp_ave = df_tmp_ave.assign(erp_FC=pd.Series(erps_FC))
-    df_tmp_ave = df_tmp_ave.assign(erp_C=pd.Series(erps_C))
-
-    # Select time window and calculate cnv values
-    time_idx = (erp_times >= -600) & (erp_times <= 0)
+    # Select time window for cnv analysis
+    cnv_times = (erp_times >= -600) & (erp_times <= 0)
+    
+    # Collector lists
     values_F = []
     values_FC = []
     values_C = []
-    for i in range(len(df_tmp_ave)):
-        row = df_tmp_ave.iloc[i]
-        values_F.append(row["erp_F"][time_idx].mean())
-        values_FC.append(row["erp_FC"][time_idx].mean())
-        values_C.append(row["erp_C"][time_idx].mean())
+    
+    # Iterate rows
+    for i in range(len(df_out)):
+        
+        # get row
+        row = df_out.iloc[i]
+        
+        # Skip missing
+        if np.isnan(erps_F[i]).any():
+            values_F.append(np.nan)
+            values_FC.append(np.nan)
+            values_C.append(np.nan)
+            continue
+        
+        # Collect parameterized CNV
+        values_F.append(row["erp_F"][cnv_times].mean())
+        values_FC.append(row["erp_FC"][cnv_times].mean())
+        values_C.append(row["erp_C"][cnv_times].mean())
 
     # Add cnv values to df
-    df_tmp_ave = df_tmp_ave.assign(cnv_F=values_F)
-    df_tmp_ave = df_tmp_ave.assign(cnv_FC=values_FC)
-    df_tmp_ave = df_tmp_ave.assign(cnv_C=values_C)
+    df_out = df_out.assign(cnv_F=values_F)
+    df_out = df_out.assign(cnv_FC=values_FC)
+    df_out = df_out.assign(cnv_C=values_C)
 
-    aa=bb
+    # Create epochs object
+    tf_data = mne.EpochsArray(tf_data, info)
 
-    # Collect
-    df_sequences.append(df_tmp_ave)
+    # Get baseline indices
+    idx_bl = (tf_times >= -1900) & (tf_times <= -1600)
 
-# Concatenate datasets
-df_sequences = pd.concat(df_sequences).reset_index()
+    # Time-frequency parameters
+    n_freqs = 30
+    tf_freqs = np.linspace(4, 15, n_freqs)
+    tf_cycles = np.linspace(4, 8, n_freqs)
 
-# Make categorial
-df_sequences["trajectory"] = pd.Categorical(df_sequences["trajectory"])
-df_sequences["session_condition"] = pd.Categorical(df_sequences["session_condition"])
+    # tf-decomposition of all data (data is trial channels frequencies times)
+    ersp_all = mne.time_frequency.tfr_morlet(
+        tf_data,
+        tf_freqs,
+        n_cycles=tf_cycles,
+        average=False,
+        return_itc=False,
+        n_jobs=-2,
+    )
+
+    # Get average baseline values
+    bl_values = ersp_all._data[:, :, :, idx_bl].mean(axis=3).mean(axis=0)
+    
+    # Create erp columns
+    df_out["frontal_theta"] = None
+    df_out["posterior_alpha"] = None
+    
+    # Collector lists
+    fr_theta = []
+    pos_alpha = []
+    
+    # Iterate sequences and get tf measures
+    for row_idx, seq_total in enumerate(df_out["sequence_nr_total"].values):
+        
+        # Get sequence indices in tf data
+        seq_idx = df_tf["sequence_nr_total"].values == seq_total
+
+        # Get sequence epochs
+        seq_tf_data = ersp_all._data[seq_idx, :, :, :].mean(axis=0)
+
+        # Apply condition general dB baseline
+        for ch in range(bl_values.shape[0]):
+            for fr in range(bl_values.shape[1]):
+                seq_tf_data[ch, fr, :] = 10 * np.log10(
+                    seq_tf_data[ch, fr, :].copy() / bl_values[ch, fr]
+                )
+                
+        # Get frontal theta
+        tmp = seq_tf_data[:, (tf_freqs >= 4) & (tf_freqs <= 7), :].mean(axis=1)
+        fr_theta.append(tmp[[4, 64, 8, 9, 37, 38], :].mean(axis=0))
+        
+        # Get posterior alpha
+        tmp = seq_tf_data[:, (tf_freqs >= 8) & (tf_freqs <= 12), :].mean(axis=1)
+        pos_alpha.append(tmp[[61, 59, 63], :].mean(axis=0))
+      
+    df_out["frontal_theta"] = fr_theta
+    df_out["posterior_alpha"] = pos_alpha
+
+    # Select time window for tf analysis
+    theta_times = (tf_times >= -1000) & (tf_times <= -200)
+    alpha_times = (tf_times >= -1000) & (tf_times <= -200)
+    
+    # Collector lists
+    values_theta = []
+    values_alpha = []
+    
+    # Iterate rows
+    for i in range(len(df_out)):
+        
+        # get row
+        row = df_out.iloc[i]
+        
+        # Collect parameterized CNV
+        values_theta.append(row["frontal_theta"][theta_times].mean())
+        values_alpha.append(row["posterior_alpha"][alpha_times].mean())
+
+    # Add cnv values to df
+    df_out = df_out.assign(frontal_theta_value=values_theta)
+    df_out = df_out.assign(posterior_alpha_value=values_alpha)
+
+    # Make categorial
+    df_out["trajectory"] = pd.Categorical(df_out["trajectory"])
+    df_out["session_condition"] = pd.Categorical(df_out["session_condition"])
+    
+    # Save dataframe
+    fn = str(int(df_out["id"].values[0])) + "_dataframe_pixelstress.pkl"
+    df_out.to_pickle(os.path.join(path_df, fn))
