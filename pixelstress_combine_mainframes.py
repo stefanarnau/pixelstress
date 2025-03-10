@@ -49,25 +49,45 @@ df["feedback"] = pd.cut(
     labels=["low", "mid", "high"],
 )
 
+# Get binned versions of deadline
+df["deadline"] = pd.cut(
+    df["sequence_nr"],
+    bins=2,
+    labels=["far", "close"],
+)
+
+
+# Get binned versions of block
+df["exp"] = pd.cut(
+    df["block_nr"],
+    bins=2,
+    labels=["start", "end"],
+)
+
+dv = "accuracy"
+
 # Linear mixed model
 model = smf.mixedlm(
-    "rt_detrended ~ feedback*session_condition*sequence_nr",
+    dv + " ~ feedback*session_condition*exp",
     data=df,
     groups="id",
 )
 results = model.fit()
 results.summary()
 
+sns.lineplot(data=df, x="feedback", y=dv, hue="session_condition", style="exp")
+
+
 aa=bb
 # ====================================================================
 
 
-grouped_vectors = df.groupby('sequence_nr')['erp_C'].apply(lambda x: np.mean(np.vstack(x), axis=0))
+grouped_vectors = df.groupby(['trajectory', 'session_condition'])['posterior_alpha'].apply(lambda x: np.mean(np.vstack(x), axis=0))
 
 # Plot the averaged vectors
 fig, ax = plt.subplots()
 for category, vector in grouped_vectors.items():
-    ax.plot(erp_times, vector, label=category)
+    ax.plot(tf_times, vector, label=category)
 
 ax.legend()
 ax.set_xlabel('Vector Dimension')
