@@ -46,7 +46,7 @@ df = df[idx_more_than_4_trials]
 df["feedback"] = pd.cut(
     df["last_feedback_scaled"],
     bins=3,
-    labels=["low", "mid", "high"],
+    labels=["low",  "mid",  "high"],
 )
 
 # Get binned versions of deadline
@@ -64,7 +64,7 @@ df["exp"] = pd.cut(
     labels=["start", "end"],
 )
 
-dv = "accuracy"
+dv = "rt"
 
 # Linear mixed model
 model = smf.mixedlm(
@@ -75,19 +75,23 @@ model = smf.mixedlm(
 results = model.fit()
 results.summary()
 
-sns.lineplot(data=df, x="feedback", y=dv, hue="session_condition", style="exp")
 
+sns.set(rc={'axes.facecolor': 'lightgrey', 'figure.facecolor': 'lightgrey'})
+sns.relplot(
+    data=df, x="feedback", y=dv, 
+    hue="session_condition", style="exp", kind="line", palette=['red', 'black']
+)
 
 aa=bb
 # ====================================================================
 
 
-grouped_vectors = df.groupby(['trajectory', 'session_condition'])['posterior_alpha'].apply(lambda x: np.mean(np.vstack(x), axis=0))
+grouped_vectors = df.groupby(['session_condition', 'feedback'])['erp_C'].apply(lambda x: np.mean(np.vstack(x), axis=0))
 
 # Plot the averaged vectors
 fig, ax = plt.subplots()
 for category, vector in grouped_vectors.items():
-    ax.plot(tf_times, vector, label=category)
+    ax.plot(erp_times, vector, label=category)
 
 ax.legend()
 ax.set_xlabel('Vector Dimension')
