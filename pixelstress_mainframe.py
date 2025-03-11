@@ -52,11 +52,12 @@ for dataset in datasets:
     # Load tf times
     tf_times = scipy.io.loadmat(dataset.split("_erp.set")[0] + "_tf.set")["times"].ravel()
     
-    # Drop first sequences
-    idx_not_first_sequences = (df_erp.sequence_nr != 1).values
+    # Drop first x sequences
+    x = 1
+    idx_not_first_sequences = (df_erp.sequence_nr != x).values
     df_erp = df_erp[idx_not_first_sequences]
     erp_data = erp_data[idx_not_first_sequences, :, :]
-    idx_not_first_sequences = (df_tf.sequence_nr != 1).values
+    idx_not_first_sequences = (df_tf.sequence_nr != x).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
     
@@ -75,9 +76,6 @@ for dataset in datasets:
     model.fit(X, y)
     y_pred = model.predict(X)
     df_tf["rt_detrended"] = y - y_pred
-
-    # Exclude trials belonging to sequences from which less than 5 trials are left
-    trial_counts = df_tf["sequence_nr_total"].value_counts()
     
     # Count trials in each sequence
     df_tf['seq_trial_n_tf'] = df_tf.groupby('sequence_nr_total')['sequence_nr_total'].transform('count')
