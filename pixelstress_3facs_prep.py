@@ -25,9 +25,6 @@ channel_labels = (
 info_tf = mne.create_info(channel_labels, 200, ch_types="eeg", verbose=None)
 info_erp = mne.create_info(channel_labels, 1000, ch_types="eeg", verbose=None)
 
-# Collector bin for all trials
-df_sequences = []
-
 # Collect datasets
 for dataset in datasets:
 
@@ -105,8 +102,10 @@ for dataset in datasets:
         ((df_tf.feedback == "close") & (df_tf.block_nr >= 5)).values,
         ((df_tf.feedback == "above") & (df_tf.block_nr >= 5)).values,
     ]
-    
-    # TODO: Check numbre of trials. What if zero?????
+
+    # Get number of trials
+    n_trials_erp = [sum(idx) for idx in idx_erp]
+    n_trials_tf = [sum(idx) for idx in idx_tf]
 
     # Time-frequency parameters
     n_freqs = 50
@@ -116,44 +115,58 @@ for dataset in datasets:
     # Iterate conditions
     for cond_nr, condition_label in enumerate(condition_labels):
 
-        # Create condition epochs object for tf
-        condition_epochs_tf = mne.EpochsArray(
-            tf_data[idx_tf[cond_nr], :, :], info_tf, tmin=-2.4
-        )
+        # Check if some trials
+        if n_trials_tf[cond_nr] >= 5:
 
-        # get dataframe for current condition for rt and accuracy
-        df_behavior = df_tf[idx_tf[cond_nr]]
-
-        # Get correct only
-        idx_correct = (df_behavior.accuracy == 1).values
-        df_correct = df_behavior[idx_correct]
-
-        # get rt and accuracy
-        rt = df_correct.rt.values.mean()
-        acc = len(df_correct) / len(df_behavior)
-
-        # tf-decomposition of all data (data is trial channels frequencies times)
-        condition_tfr = (
-            mne.time_frequency.tfr_morlet(
-                condition_epochs_tf,
-                tf_freqs,
-                n_cycles=tf_cycles,
-                average=True,
-                return_itc=False,
-                n_jobs=-2,
+            # Create condition epochs object for tf
+            condition_epochs_tf = mne.EpochsArray(
+                tf_data[idx_tf[cond_nr], :, :], info_tf, tmin=-2.4
             )
-            .apply_baseline((-1.9, -1.6), mode="logratio")
-            .crop(tmin=-1.9, tmax=1)
-            .decimate(decim=2)
-        )
 
-        # Create condition epochs object for tf
-        condition_epochs_erp = mne.EpochsArray(
-            erp_data[idx_erp[cond_nr], :, :], info_erp, tmin=-1.7
-        )
+            # get dataframe for current condition for rt and accuracy
+            df_behavior = df_tf[idx_tf[cond_nr]]
 
-        # Get erps
-        condition_erp = condition_epochs_erp.average()
+            # Get correct only
+            idx_correct = (df_behavior.accuracy == 1).values
+            df_correct = df_behavior[idx_correct]
+
+            # get rt and accuracy
+            rt = df_correct.rt.values.mean()
+            acc = len(df_correct) / len(df_behavior)
+
+            # tf-decomposition of condition data
+            condition_tfr = (
+                mne.time_frequency.tfr_morlet(
+                    condition_epochs_tf,
+                    tf_freqs,
+                    n_cycles=tf_cycles,
+                    average=True,
+                    return_itc=False,
+                    n_jobs=-2,
+                )
+                .apply_baseline((-1.9, -1.6), mode="logratio")
+                .crop(tmin=-1.9, tmax=1)
+                .decimate(decim=2)
+            )
+
+        else:
+            condition_tfr = None
+            rt = None
+            acc = None
+
+        # Get erp of condition data (if there are some trials)
+        if n_trials_erp[cond_nr] >= 5:
+
+            # Create condition epochs object for tf
+            condition_epochs_erp = mne.EpochsArray(
+                erp_data[idx_erp[cond_nr], :, :], info_erp, tmin=-1.7
+            )
+
+            # Get erps
+            condition_erp = condition_epochs_erp.average()
+
+        else:
+            condition_erp = None
 
         # Get group variable
         if df_erp.session_condition.values[0] == 1:
@@ -169,6 +182,8 @@ for dataset in datasets:
             "feedback": condition_label.split("_")[1],
             "rt": rt,
             "accuracy": acc,
+            "n_trials_tf": n_trials_tf[cond_nr],
+            "n_trials_erp": n_trials_erp[cond_nr],
             "tfr": condition_tfr,
             "erp": condition_erp,
         }
