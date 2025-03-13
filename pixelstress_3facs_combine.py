@@ -8,6 +8,7 @@ import scipy.io
 from joblib import load
 import seaborn as sns
 import matplotlib.pyplot as plt
+import statsmodels.formula.api as smf
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/3_condition_data/"
@@ -35,7 +36,7 @@ for dataset in datasets:
         ids_to_exclude.append(data["id"])
 
     # Set a stricter criterium
-    if (data["n_trials_erp"] < 30) | (data["n_trials_tf"] < 30):
+    if (data["n_trials_erp"] < 20) | (data["n_trials_tf"] < 20):
         ids_to_exclude.append(data["id"])
 
 
@@ -70,6 +71,61 @@ plt.tight_layout()
 plt.show()
 
 # Plot ERP ======================================================================================================================
+
+# Create CNV averages
+for i, row in df.iterrows():
+    
+    # Get time idx
+    time_idx = (row["erp"].times >= - 0.5) & (row["erp"].times <= 0)
+    
+    # Get average
+    df.at[i, "cnv_C"] = row["erp"].copy().pick(["Cz"])._data.mean(axis=0)[time_idx].mean()
+    df.at[i, "cnv_FC"] = row["erp"].copy().pick(["FCz"])._data.mean(axis=0)[time_idx].mean()
+    df.at[i, "cnv_F"] = row["erp"].copy().pick(["Fz", "F1", "F2"])._data.mean(axis=0)[time_idx].mean()
+    
+# Select dv
+dv="cnv_F"
+
+# Linear mixed model
+model = smf.mixedlm(
+    dv + " ~ feedback*group*stage",
+    data=df,
+    groups="id",
+)
+results = model.fit()
+results.summary()
+
+
+sns.set(rc={'axes.facecolor': 'lightgrey', 'figure.facecolor': 'lightgrey'})
+sns.relplot(
+    data=df, x="feedback", y=dv, 
+    hue="group", style="stage", kind="line", palette=['cyan', 'magenta']
+)
+   
+    
+
+df = df.assign(erp_C=erp_C)
+grouped_vectors = df.groupby(['group', 'stage', 'feedback'])['erp_C'].apply(lambda x: np.mean(np.vstack(x), axis=0))
+
+# Plot the averaged vectors
+fig, ax = plt.subplots()
+for category, vector in grouped_vectors.items():
+    ax.plot(erp_times, vector, label=category)
+
+ax.legend()
+ax.set_xlabel('Vector Dimension')
+ax.set_ylabel('Average Value')
+ax.set_title('Averaged Vectors by Category')
+plt.show()
+
+aa=bb
+    
+
+    
+    
+
+
+
 
 # Select elctrodes to plot
 sensors = ["Cz"]

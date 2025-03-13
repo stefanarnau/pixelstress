@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import scipy.io
 from joblib import dump
+import sklearn.linear_model
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -53,11 +54,11 @@ for dataset in datasets:
     ].ravel()
 
     # Drop first x sequences
-    x = 1
-    idx_not_first_sequences = (df_erp.sequence_nr != x).values
+    x = 6
+    idx_not_first_sequences = (df_erp.sequence_nr > x).values
     df_erp = df_erp[idx_not_first_sequences]
     erp_data = erp_data[idx_not_first_sequences, :, :]
-    idx_not_first_sequences = (df_tf.sequence_nr != x).values
+    idx_not_first_sequences = (df_tf.sequence_nr > x).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
 
@@ -72,6 +73,14 @@ for dataset in datasets:
         bins=3,
         labels=["below", "close", "above"],
     )
+    
+    # Remove trial difficulty confound using linear regression
+    X = df_tf[["trial_difficulty"]].values
+    y = df_tf["rt"].values
+    model = sklearn.linear_model.LinearRegression()
+    model.fit(X, y)
+    y_pred = model.predict(X)
+    df_tf["rt_detrended"] = y - y_pred
 
     # Condition labels
     condition_labels = [
@@ -116,7 +125,7 @@ for dataset in datasets:
     for cond_nr, condition_label in enumerate(condition_labels):
 
         # Check if some trials
-        if n_trials_tf[cond_nr] >= 5:
+        if n_trials_tf[cond_nr] >= 20:
 
             # Create condition epochs object for tf
             condition_epochs_tf = mne.EpochsArray(
@@ -132,6 +141,7 @@ for dataset in datasets:
 
             # get rt and accuracy
             rt = df_correct.rt.values.mean()
+            rt_detrended = df_correct.rt_detrended.values.mean()
             acc = len(df_correct) / len(df_behavior)
 
             # tf-decomposition of condition data
@@ -155,7 +165,7 @@ for dataset in datasets:
             acc = None
 
         # Get erp of condition data (if there are some trials)
-        if n_trials_erp[cond_nr] >= 5:
+        if n_trials_erp[cond_nr] >= 20:
 
             # Create condition epochs object for tf
             condition_epochs_erp = mne.EpochsArray(
@@ -181,6 +191,7 @@ for dataset in datasets:
             "stage": condition_label.split("_")[0],
             "feedback": condition_label.split("_")[1],
             "rt": rt,
+            "rt_detrended": rt_detrended,
             "accuracy": acc,
             "n_trials_tf": n_trials_tf[cond_nr],
             "n_trials_erp": n_trials_erp[cond_nr],
