@@ -95,7 +95,7 @@ for dataset in datasets:
     # Time-frequency parameters
     n_freqs = 30
     tf_freqs = np.linspace(4, 30, n_freqs)
-    tf_cycles = np.linspace(4, 12, n_freqs)
+    tf_cycles = np.linspace(6, 12, n_freqs)
 
     # Create epochs object for tf
     tf_data = mne.EpochsArray(tf_data, info_tf, tmin=-2.4)
@@ -112,13 +112,13 @@ for dataset in datasets:
         )
         .crop(tmin=-1.9, tmax=1)
         .decimate(decim=2)
-    )
+    ).apply_baseline((-1.9, -1.6), mode="mean", verbose=None)
 
     # Create epochs object for erp
     erp_data = mne.EpochsArray(erp_data, info_erp, tmin=-1.7)
 
     # Get erp measures (CNV)
-    time_idx = (erp_data.times >= -0.6) & (erp_data.times <= 0)
+    time_idx = (erp_data.times >= -0.5) & (erp_data.times <= 0)
     cnv_F = (
         erp_data.copy()
         .pick(["Fz", "F1", "F2"])
@@ -148,9 +148,9 @@ for dataset in datasets:
 
     # Set tf indices
     time_idx = (tf_data.times >= -1) & (tf_data.times <= -0.2)
-    theta_idx = (tf_data.freqs >= 4) & (tf_data.freqs <= 7)
+    theta_idx = (tf_data.freqs >= 4) & (tf_data.freqs <= 6)
     alpha_idx = (tf_data.freqs >= 8) & (tf_data.freqs <= 12)
-    beta_idx = (tf_data.freqs >= 16) & (tf_data.freqs <= 30)
+    beta_idx = (tf_data.freqs >= 18) & (tf_data.freqs <= 30)
 
     # Get region tf data
     frontal_tf_data = (
