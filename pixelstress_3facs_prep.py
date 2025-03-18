@@ -10,7 +10,7 @@ import sklearn.linear_model
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
-path_out = "/mnt/data_dump/pixelstress/3_condition_data/"
+path_out = "/mnt/data_dump/pixelstress/3_st_data/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*erp.set")
@@ -28,8 +28,6 @@ info_erp = mne.create_info(channel_labels, 1000, ch_types="eeg", verbose=None)
 
 # Collect datasets
 for dataset in datasets:
-
-    # Load stuff =========================================================================================================
 
     # Read erp trialinfo
     df_erp = pd.read_csv(dataset.split("_cleaned")[0] + "_erp_trialinfo.csv")
@@ -53,162 +51,161 @@ for dataset in datasets:
         "times"
     ].ravel()
 
-    # Drop first x sequences
-    x = 6
-    idx_not_first_sequences = (df_erp.sequence_nr > x).values
+    # Drop first sequences from erp data
+    idx_not_first_sequences = (df_erp.sequence_nr > 1).values
     df_erp = df_erp[idx_not_first_sequences]
     erp_data = erp_data[idx_not_first_sequences, :, :]
-    idx_not_first_sequences = (df_tf.sequence_nr > x).values
+
+    # Drop first sequences from tf data
+    idx_not_first_sequences = (df_tf.sequence_nr > 1).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
 
-    # Get binned versions of feedback
-    df_erp["feedback"] = pd.cut(
-        df_erp["last_feedback_scaled"],
-        bins=3,
-        labels=["below", "close", "above"],
-    )
-    df_tf["feedback"] = pd.cut(
-        df_tf["last_feedback_scaled"],
-        bins=3,
-        labels=["below", "close", "above"],
-    )
-    
+    # Get common trials
+    to_keep = np.intersect1d(df_erp.trial_nr_total.values, df_tf.trial_nr_total.values)
+
+    # Get df of common trials
+    df = df_erp[df_erp["trial_nr_total"].isin(to_keep)]
+
+    # Set RTs of non-correct to nan
+    df.loc[df["accuracy"] != 1, "rt"] = np.nan
+
     # Remove trial difficulty confound using linear regression
-    X = df_tf[["trial_difficulty"]].values
-    y = df_tf["rt"].values
+    X = df[["trial_difficulty"]].values
+    y = df["rt"].values
+    mask = ~np.isnan(y)
     model = sklearn.linear_model.LinearRegression()
-    model.fit(X, y)
+    model.fit(X[mask], y[mask])
     y_pred = model.predict(X)
-    df_tf["rt_detrended"] = y - y_pred
+    df["rt_detrended"] = y - y_pred
 
-    # Condition labels
-    condition_labels = [
-        "early_below",
-        "early_close",
-        "early_above",
-        "late_below",
-        "late_close",
-        "late_above",
-    ]
+    # Rename group column
+    df.rename(columns={"session_condition": "group"}, inplace=True)
+    df["group"] = df["group"].replace({1: "experimental", 2: "control"})
 
-    # Get condition idx for erp
-    idx_erp = [
-        ((df_erp.feedback == "below") & (df_erp.block_nr <= 4)).values,
-        ((df_erp.feedback == "close") & (df_erp.block_nr <= 4)).values,
-        ((df_erp.feedback == "above") & (df_erp.block_nr <= 4)).values,
-        ((df_erp.feedback == "below") & (df_erp.block_nr >= 5)).values,
-        ((df_erp.feedback == "close") & (df_erp.block_nr >= 5)).values,
-        ((df_erp.feedback == "above") & (df_erp.block_nr >= 5)).values,
-    ]
+    # Reduce erp data to common trials
+    mask = np.isin(df_erp["trial_nr_total"].values, to_keep)
+    erp_data = erp_data[mask, :, :]
 
-    # Get condition idx for tf
-    idx_tf = [
-        ((df_tf.feedback == "below") & (df_tf.block_nr <= 4)).values,
-        ((df_tf.feedback == "close") & (df_tf.block_nr <= 4)).values,
-        ((df_tf.feedback == "above") & (df_tf.block_nr <= 4)).values,
-        ((df_tf.feedback == "below") & (df_tf.block_nr >= 5)).values,
-        ((df_tf.feedback == "close") & (df_tf.block_nr >= 5)).values,
-        ((df_tf.feedback == "above") & (df_tf.block_nr >= 5)).values,
-    ]
+    # Reduce tf data to common trials
+    mask = np.isin(df_tf["trial_nr_total"].values, to_keep)
+    tf_data = tf_data[mask, :, :]
 
-    # Get number of trials
-    n_trials_erp = [sum(idx) for idx in idx_erp]
-    n_trials_tf = [sum(idx) for idx in idx_tf]
+    # Get binned versions of feedback
+    df["feedback"] = pd.cut(
+        df["last_feedback_scaled"],
+        bins=3,
+        labels=["below", "close", "above"],
+    )
+
+    # Add variable trajectory
+    df = df.assign(trajectory="close")
+    df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
+    df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "above"
+
+    # Add variable stage
+    df = df.assign(stage="start")
+    df.stage[(df.block_nr >= 5)] = "end"
+
+    # Identify and drop non-correct
+    mask = ~np.isnan(df["rt"].values)
+    df_correct = df.dropna(subset=["rt"])
+    tf_data = tf_data[mask, :, :]
+    erp_data = erp_data[mask, :, :]
+
+    # Make grouped df
+    df_grouped = (
+        df.groupby(["stage", "feedback", "id", "group"])["rt", "rt_detrended"]
+        .mean()
+        .reset_index()
+    )
 
     # Time-frequency parameters
-    n_freqs = 50
+    n_freqs = 40
     tf_freqs = np.linspace(4, 30, n_freqs)
-    tf_cycles = np.linspace(4, 12, n_freqs)
+    tf_cycles = np.linspace(6, 12, n_freqs)
+
+    # Create epochs object for tf
+    tf_data = mne.EpochsArray(tf_data, info_tf, tmin=-2.4)
+
+    # tf-decomposition of data
+    tf_data = (
+        mne.time_frequency.tfr_morlet(
+            tf_data,
+            tf_freqs,
+            n_cycles=tf_cycles,
+            average=False,
+            return_itc=False,
+            n_jobs=-2,
+        )
+        .crop(tmin=-1.9, tmax=1)
+        .decimate(decim=4)
+    )
+
+    # Get baseline indices
+    idx_bl = (tf_data.times >= -1.9) & (tf_data.times <= -1.6)
+
+    # Get average baseline values
+    bl_values = tf_data._data[:, :, :, idx_bl].mean(axis=3).mean(axis=0)
 
     # Iterate conditions
-    for cond_nr, condition_label in enumerate(condition_labels):
+    n_trials = []
+    accuracies = []
+    erps = []
+    tfrs = []
+    for row_idx, row in df_grouped.iterrows():
 
-        # Check if some trials
-        if n_trials_tf[cond_nr] >= 20:
+        # get indices
+        idx_df = ((df.feedback == row.feedback) & (df.stage == row.stage)).values
+        idx_df_correct = (
+            (df_correct.feedback == row.feedback) & (df_correct.stage == row.stage)
+        ).values
 
-            # Create condition epochs object for tf
-            condition_epochs_tf = mne.EpochsArray(
-                tf_data[idx_tf[cond_nr], :, :], info_tf, tmin=-2.4
-            )
+        # Get number of trials
+        n_trials.append(sum(idx_df_correct))
 
-            # get dataframe for current condition for rt and accuracy
-            df_behavior = df_tf[idx_tf[cond_nr]]
+        # If no trial in erp data for sequence remains...
+        if sum(idx_df_correct) == 0:
 
-            # Get correct only
-            idx_correct = (df_behavior.accuracy == 1).values
-            df_correct = df_behavior[idx_correct]
+            accuracies.append(np.nan)
+            erps.append(np.nan)
+            tfrs.append(np.nan)
+            continue
 
-            # get rt and accuracy
-            rt = df_correct.rt.values.mean()
-            rt_detrended = df_correct.rt_detrended.values.mean()
-            acc = len(df_correct) / len(df_behavior)
+        # Get accuracy for condition
+        accuracies.append(sum(idx_df_correct) / sum(idx_df))
 
-            # tf-decomposition of condition data
-            condition_tfr = (
-                mne.time_frequency.tfr_morlet(
-                    condition_epochs_tf,
-                    tf_freqs,
-                    n_cycles=tf_cycles,
-                    average=True,
-                    return_itc=False,
-                    n_jobs=-2,
+        # Create condition epochs object for erp
+        epochs_erp = mne.EpochsArray(
+            erp_data[idx_df_correct, :, :], info_erp, tmin=-1.7
+        )
+
+        # Get condition erps
+        erps.append(epochs_erp.average().decimate(4))
+
+        # Get condition tf data and apply condition-general dB baseline
+        condition_tf = tf_data[idx_df_correct].average()
+        tmp = condition_tf._data
+        for ch in range(bl_values.shape[0]):
+            for fr in range(bl_values.shape[1]):
+                tmp[ch, fr, :] = 10 * np.log10(
+                    tmp[ch, fr, :].copy() / bl_values[ch, fr]
                 )
-                .apply_baseline((-1.9, -1.6), mode="logratio")
-                .crop(tmin=-1.9, tmax=1)
-                .decimate(decim=2)
-            )
+        condition_tf._data = tmp.copy()
+        tfrs.append(condition_tf)
 
-        else:
-            condition_tfr = None
-            rt = None
-            acc = None
+    # Add to grouped df
+    df_grouped["n_trials"] = n_trials
+    df_grouped["accuracy"] = accuracies
+    df_grouped["erps"] = erps
+    df_grouped["tfrs"] = tfrs
 
-        # Get erp of condition data (if there are some trials)
-        if n_trials_erp[cond_nr] >= 20:
-
-            # Create condition epochs object for tf
-            condition_epochs_erp = mne.EpochsArray(
-                erp_data[idx_erp[cond_nr], :, :], info_erp, tmin=-1.7
-            )
-
-            # Get erps
-            condition_erp = condition_epochs_erp.average()
-
-        else:
-            condition_erp = None
-
-        # Get group variable
-        if df_erp.session_condition.values[0] == 1:
-            group = "experimental"
-        else:
-            group = "control"
-
-        # Compile output
-        condition_data = {
-            "id": df_erp.id.values[0],
-            "group": group,
-            "stage": condition_label.split("_")[0],
-            "feedback": condition_label.split("_")[1],
-            "rt": rt,
-            "rt_detrended": rt_detrended,
-            "accuracy": acc,
-            "n_trials_tf": n_trials_tf[cond_nr],
-            "n_trials_erp": n_trials_erp[cond_nr],
-            "tfr": condition_tfr,
-            "erp": condition_erp,
-        }
-
-        # Save result
-        fn_out = os.path.join(
-            path_out,
-            "condition_data_"
-            + str(df_erp.id.values[0])
-            + "_"
-            + condition_label
-            + ".joblib",
-        )
-        dump(
-            condition_data,
-            fn_out,
-        )
+    # Save result
+    fn_out = os.path.join(
+        path_out,
+        "fac3_data_" + str(df.id.values[0]) + ".joblib",
+    )
+    dump(
+        df_grouped,
+        fn_out,
+    )

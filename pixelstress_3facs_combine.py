@@ -10,8 +10,63 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import statsmodels.formula.api as smf
 
+
+# Function for parameterizing and plotting ERP
+def get_erp(erp_label, erp_timewin, channel_selection):
+
+    # Get time idx
+    erp_times = df_data["erps"][0].times
+    erp_win = (erp_times >= erp_timewin[0]) & (erp_times <= erp_timewin[1])
+
+    # Iterate df
+    new_df = []
+    for row_idx, row in df_data.iterrows():
+
+        # Get selected channel data
+        erp_ts = row["erps"].copy().pick(channel_selection).get_data().mean(axis=0)
+
+        # Save average for statistics
+        df.at[row_idx, erp_label] = erp_ts[erp_win].mean()
+
+        # Build df for plotting
+        for tidx, t in enumerate(erp_times):
+
+            new_df.append(
+                {
+                    "id": row["id"],
+                    "group": row["group"],
+                    "stage": row["stage"],
+                    "feedback": row["feedback"],
+                    "s": t,
+                    "mV": erp_ts[tidx],
+                }
+            )
+
+    # Average plotting df across ids
+    new_df = (
+        pd.DataFrame(new_df)
+        .groupby(["stage", "feedback", "group", "s"])["mV"]
+        .mean()
+        .reset_index()
+    )
+
+    # plot erp
+    sns.relplot(
+        data=new_df,
+        x="s",
+        y="mV",
+        hue="group",
+        style="stage",
+        col="feedback",
+        kind="line",
+    )
+    plt.show()
+
+    return None
+
+
 # Define paths
-path_in = "/mnt/data_dump/pixelstress/3_condition_data/"
+path_in = "/mnt/data_dump/pixelstress/3_st_data/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*.joblib")
@@ -19,155 +74,121 @@ datasets = glob.glob(f"{path_in}/*.joblib")
 # Collector bin
 data_in = []
 
-# List of ids with less than minumum trials in some conditions
-ids_to_exclude = []
-
 # Collect datasets
 for dataset in datasets:
 
     # Read data
     data = load(os.path.join(path_in, dataset))
 
-    # Collect
-    data_in.append(data)
+    # Check if less than minimum trials in any condition
+    if (data["n_trials"] < 5).any():
+        continue
 
-    # Check minimum trialcount
-    if data["rt"] == None:
-        ids_to_exclude.append(data["id"])
+    # If not... Collect!
+    else:
+        data_in.append(data)
 
-    # Set a stricter criterium
-    if (data["n_trials_erp"] < 20) | (data["n_trials_tf"] < 20):
-        ids_to_exclude.append(data["id"])
+# Concatenate
+df_data = pd.concat(data_in).reset_index()
 
+# Cretae a combined factor variable
+df_data["combined"] = (
+    df_data["group"].astype(str)
+    + " "
+    + df_data["stage"].astype(str)
+    + " "
+    + df_data["feedback"].astype(str)
+)
 
-# To set
-ids_to_exclude = list(set(ids_to_exclude))
-
-# Create dataframe
-df = pd.DataFrame(data_in)
-
-# Exclude ids with small number of trials
-df = df[~df["id"].isin(ids_to_exclude)]
+# Drop eeg data for parameterized df
+df = df_data.drop(["erps", "tfrs"], axis=1)
 
 # Plot number of trials ========================================================================================================
 
-# Cretae a combined factor variable
-df["combined"] = (
-    df["group"].astype(str)
-    + " "
-    + df["stage"].astype(str)
-    + " "
-    + df["feedback"].astype(str)
-)
-
 # Plot
 sns.set_style("whitegrid")
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(24, 12))
-sns.boxplot(x="combined", y="n_trials_erp", data=df, ax=ax1)
-ax1.set_title("n trials erp")
-sns.boxplot(x="combined", y="n_trials_tf", data=df, ax=ax2)
-ax2.set_title("n trials tf")
+fig, (ax) = plt.subplots(1, 1, figsize=(24, 12))
+sns.boxplot(x="combined", y="n_trials", data=df, ax=ax)
+ax.set_title("n trials")
 plt.tight_layout()
 plt.show()
 
 # Plot ERP ======================================================================================================================
+get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
 
-# Create CNV averages
-for i, row in df.iterrows():
-    
-    # Get time idx
-    time_idx = (row["erp"].times >= - 0.5) & (row["erp"].times <= 0)
-    
-    # Get average
-    df.at[i, "cnv_C"] = row["erp"].copy().pick(["Cz"])._data.mean(axis=0)[time_idx].mean()
-    df.at[i, "cnv_FC"] = row["erp"].copy().pick(["FCz"])._data.mean(axis=0)[time_idx].mean()
-    df.at[i, "cnv_F"] = row["erp"].copy().pick(["Fz", "F1", "F2"])._data.mean(axis=0)[time_idx].mean()
-    
-# Select dv
-dv="cnv_F"
+channel_selection = ["FCz", "Fz"]
+tf_timewin = (-1.2, -0.2)
+tf_freqwin = (4, 7)
 
-# Linear mixed model
-model = smf.mixedlm(
-    dv + " ~ feedback*group*stage",
-    data=df,
-    groups="id",
+# Get idx
+tf_times = df_data["tfrs"][0].times
+tf_freqs = df_data["tfrs"][0].freqs
+
+tf_time_idx = (tf_times >= tf_timewin[0]) & (tf_times <= tf_timewin[1])
+tf_freq_idx = (tf_freqs >= tf_freqwin[0]) & (tf_freqs <= tf_freqwin[1])
+
+# Iterate df
+new_df = []
+for row_idx, row in df_data.iterrows():
+
+    # Get selected channel data
+    erp_ts = row["tfrs"].copy().pick(channel_selection).get_data()
+
+    # Save average for statistics
+    df.at[row_idx, erp_label] = erp_ts[erp_win].mean()
+
+    # Build df for plotting
+    for tidx, t in enumerate(erp_times):
+
+        new_df.append(
+            {
+                "id": row["id"],
+                "group": row["group"],
+                "stage": row["stage"],
+                "feedback": row["feedback"],
+                "s": t,
+                "mV": erp_ts[tidx],
+            }
+        )
+
+# Average plotting df across ids
+new_df = (
+    pd.DataFrame(new_df)
+    .groupby(["stage", "feedback", "group", "s"])["mV"]
+    .mean()
+    .reset_index()
 )
-results = model.fit()
-results.summary()
 
-
-sns.set(rc={'axes.facecolor': 'lightgrey', 'figure.facecolor': 'lightgrey'})
+# plot erp
 sns.relplot(
-    data=df, x="feedback", y=dv, 
-    hue="group", style="stage", kind="line", palette=['cyan', 'magenta']
+    data=new_df,
+    x="s",
+    y="mV",
+    hue="group",
+    style="stage",
+    col="feedback",
+    kind="line",
 )
-   
-    
-
-df = df.assign(erp_C=erp_C)
-grouped_vectors = df.groupby(['group', 'stage', 'feedback'])['erp_C'].apply(lambda x: np.mean(np.vstack(x), axis=0))
-
-# Plot the averaged vectors
-fig, ax = plt.subplots()
-for category, vector in grouped_vectors.items():
-    ax.plot(erp_times, vector, label=category)
-
-ax.legend()
-ax.set_xlabel('Vector Dimension')
-ax.set_ylabel('Average Value')
-ax.set_title('Averaged Vectors by Category')
 plt.show()
 
-aa=bb
-    
 
-    
-    
+# Save to csv
+fn = os.path.join(path_in, "combined.csv")
+df.to_csv(fn, index=False)
 
+# Plot behavior
+sns.relplot(data=df, x="feedback", y="rt", hue="stage", style="group", kind="line")
+plt.show()
+sns.relplot(
+    data=df, x="feedback", y="rt_detrended", hue="stage", style="group", kind="line"
+)
+plt.show()
+sns.relplot(
+    data=df, x="feedback", y="accuracy", hue="stage", style="group", kind="line"
+)
+plt.show()
 
-
-
-# Select elctrodes to plot
-sensors = ["Cz"]
-
-# Iterate groups
-for g, stage in enumerate(["early", "late"]):
-    
-    # Get subset
-    df_subset = df[df["stage"] == stage]
-        
-    # Create evokeds dictionary
-    evokeds_dict = {}
-    for evoked, condition in zip(df_subset["erp"].tolist(), df_subset["combined"].tolist()):
-        if condition not in evokeds_dict:
-            evokeds_dict[condition] = []
-        evokeds_dict[condition].append(evoked)
-        
-    
-    # Set up dicts
-    color_dict = {}
-    style_dict = {}
-    for condition in list(set(df_subset["combined"].tolist())):
-        
-        if condition.split(" ")[2] == "close":
-            color_dict[condition] = "black"
-        elif condition.split(" ")[2] == "above":
-            color_dict[condition] = "cyan"
-        elif condition.split(" ")[2] == "below":
-            color_dict[condition] = "magenta"
-        if condition.split(" ")[0] == "control":
-            style_dict[condition] = ":"
-        elif condition.split(" ")[0] == "experimental":
-            style_dict[condition] = "-"
-          
-    # Plot for a specific channel (e.g., 'EEG 001')
-    mne.viz.plot_compare_evokeds(
-        evokeds_dict,
-        picks=sensors,
-        colors=color_dict,
-        linestyles=style_dict,
-        ci=False,
-        combine="mean"
-    
-    )
-    
+sns.relplot(
+    data=df, x="feedback", y="cnv_Fz", hue="stage", style="group", kind="line"
+)
+plt.show()
