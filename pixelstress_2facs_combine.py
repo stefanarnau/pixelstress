@@ -36,7 +36,6 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                 {
                     "id": row["id"],
                     "group": row["group"],
-                    "stage": row["stage"],
                     "feedback": row["feedback"],
                     "s": t,
                     "mV": erp_ts[tidx],
@@ -46,7 +45,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "s"])["mV"]
+        .groupby(["feedback", "group", "s"])["mV"]
         .mean()
         .reset_index()
     )
@@ -56,15 +55,14 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         data=new_df,
         x="s",
         y="mV",
-        hue="group",
-        style="stage",
-        col="feedback",
+        style="feedback",
+        col="group",
         kind="line",
     )
     plt.show()
-    
+
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=erp_label, hue="stage", style="group", kind="line")
+    sns.relplot(data=df, x="feedback", y=erp_label, style="group", kind="line")
     plt.show()
 
     return None
@@ -100,7 +98,6 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
                     {
                         "id": row["id"],
                         "group": row["group"],
-                        "stage": row["stage"],
                         "feedback": row["feedback"],
                         "combined": row["combined"],
                         "s": t,
@@ -112,7 +109,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "combined", "s", "Hz"])["dB"]
+        .groupby(["feedback", "group", "combined", "s", "Hz"])["dB"]
         .mean()
         .reset_index()
     )
@@ -120,7 +117,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Get freq-specific df
     freq_df = (
         new_df[new_df["Hz"].between(tf_freqwin[0], tf_freqwin[1])]
-        .groupby(["stage", "feedback", "group", "s"])
+        .groupby(["feedback", "group", "s"])
         .mean()
         .reset_index()
     )
@@ -131,23 +128,22 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         x="s",
         y="dB",
         hue="group",
-        style="stage",
         col="feedback",
         kind="line",
     )
     plt.show()
-    
+
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=tf_label, hue="stage", style="group", kind="line")
+    sns.relplot(data=df, x="feedback", y=tf_label, style="group", kind="line")
     plt.show()
-    
+
     return None
 
 
 # =================================================================================================================
 
 # Define paths
-path_in = "/mnt/data_dump/pixelstress/3_3fac_data/"
+path_in = "/mnt/data_dump/pixelstress/3_2fac_data/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*.joblib")
@@ -174,11 +170,7 @@ df_data = pd.concat(data_in).reset_index()
 
 # Cretae a combined factor variable
 df_data["combined"] = (
-    df_data["feedback"].astype(str)
-    + " "
-    + df_data["stage"].astype(str)
-    + " "
-    + df_data["group"].astype(str)
+    df_data["feedback"].astype(str) + " " + df_data["group"].astype(str)
 )
 
 # Drop eeg data for parameterized df
@@ -205,18 +197,21 @@ plt.show()
 
 # Plot rt ========================================================================================================
 
-sns.relplot(data=df, x="feedback", y="rt", hue="stage", style="group", kind="line")
+sns.relplot(data=df, x="feedback", y="rt", style="group", kind="line")
 plt.show()
 
-sns.relplot(data=df, x="feedback", y="rt_detrended", hue="stage", style="group", kind="line")
+sns.relplot(data=df, x="feedback", y="rt_detrended", style="group", kind="line")
 plt.show()
+
 # Plot ERP ======================================================================================================================
-get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
+get_erp(erp_label="cnv_Fz", erp_timewin=(-0.7, 0), channel_selection=["Fz"])
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+
+aa = bb
 
 get_freqband(
     tf_label="frontal_theta_cue_target",
-    tf_timewin=(-0.8, -0.2),
+    tf_timewin=(0.2, 0.5),
     tf_freqwin=(4, 6),
     channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
 )
@@ -225,21 +220,21 @@ get_freqband(
     tf_label="frontal_alpha",
     tf_timewin=(-0.8, -0.2),
     tf_freqwin=(8, 14),
-    channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
+    channel_selection=["FCz"],
 )
 
 get_freqband(
     tf_label="posterior_alpha",
     tf_timewin=(-1.2, -0.2),
     tf_freqwin=(8, 14),
-    channel_selection=["POz", "Pz", "PO3", "PO4"],
+    channel_selection=["POz"],
 )
 
 get_freqband(
     tf_label="central_beta",
     tf_timewin=(-1.2, -0.2),
-    tf_freqwin=(18, 30),
-    channel_selection=["Cz", "C1", "C2"],
+    tf_freqwin=(10, 30),
+    channel_selection=["C3", "C4"],
 )
 
 # Save to csv
@@ -300,7 +295,6 @@ fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
 # Adjust the layout and display the plot
 plt.tight_layout()
 plt.show()
-
 
 
 # Plot behavior

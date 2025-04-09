@@ -10,7 +10,7 @@ import sklearn.linear_model
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
-path_out = "/mnt/data_dump/pixelstress/3_3fac_data/"
+path_out = "/mnt/data_dump/pixelstress/3_2fac_data/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*erp.set")
@@ -52,12 +52,12 @@ for dataset in datasets:
     ].ravel()
 
     # Drop first sequences from erp data
-    idx_not_first_sequences = (df_erp.sequence_nr > 1).values
+    idx_not_first_sequences = (df_erp.sequence_nr > 6).values
     df_erp = df_erp[idx_not_first_sequences]
     erp_data = erp_data[idx_not_first_sequences, :, :]
 
     # Drop first sequences from tf data
-    idx_not_first_sequences = (df_tf.sequence_nr > 1).values
+    idx_not_first_sequences = (df_tf.sequence_nr > 6).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
 
@@ -103,10 +103,6 @@ for dataset in datasets:
     df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
     df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "above"
 
-    # Add variable stage
-    df = df.assign(stage="start")
-    df.stage[(df.block_nr >= 5)] = "end"
-
     # Identify and drop non-correct
     mask = ~np.isnan(df["rt"].values)
     df_correct = df.dropna(subset=["rt"])
@@ -115,7 +111,7 @@ for dataset in datasets:
 
     # Make grouped df
     df_grouped = (
-        df.groupby(["stage", "feedback", "id", "group"])["rt", "rt_detrended"]
+        df.groupby(["trajectory", "id", "group"])["rt", "rt_detrended"]
         .mean()
         .reset_index()
     )
@@ -156,10 +152,8 @@ for dataset in datasets:
     for row_idx, row in df_grouped.iterrows():
 
         # get indices
-        idx_df = ((df.feedback == row.feedback) & (df.stage == row.stage)).values
-        idx_df_correct = (
-            (df_correct.feedback == row.feedback) & (df_correct.stage == row.stage)
-        ).values
+        idx_df = (df.feedback == row.feedback).values
+        idx_df_correct = (df_correct.feedback == row.feedback).values
 
         # Get number of trials
         n_trials.append(sum(idx_df_correct))
@@ -203,7 +197,7 @@ for dataset in datasets:
     # Save result
     fn_out = os.path.join(
         path_out,
-        "fac3_data_" + str(df.id.values[0]) + ".joblib",
+        "fac2_data_" + str(df.id.values[0]) + ".joblib",
     )
     dump(
         df_grouped,
