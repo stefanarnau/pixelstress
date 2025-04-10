@@ -11,7 +11,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
-path_out = "/mnt/data_dump/pixelstress/3_2fac_data/"
+path_out = "/mnt/data_dump/pixelstress/3_2fac_data_behavior/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*erp.set")
@@ -53,12 +53,12 @@ for dataset in datasets:
     ].ravel()
 
     # Drop first sequences from erp data
-    idx_not_first_sequences = (df_erp.sequence_nr > 3).values
+    idx_not_first_sequences = (df_erp.sequence_nr > 0).values
     df_erp = df_erp[idx_not_first_sequences]
     erp_data = erp_data[idx_not_first_sequences, :, :]
 
     # Drop first sequences from tf data
-    idx_not_first_sequences = (df_tf.sequence_nr > 3).values
+    idx_not_first_sequences = (df_tf.sequence_nr > 0).values
     df_tf = df_tf[idx_not_first_sequences]
     tf_data = tf_data[idx_not_first_sequences, :, :]
 
@@ -73,7 +73,7 @@ for dataset in datasets:
 
     # Remove trial difficulty confound using linear regression
     scaler = MinMaxScaler()
-    df['trial_difficulty_scaled'] = scaler.fit_transform(df[['trial_difficulty']])
+    df["trial_difficulty_scaled"] = scaler.fit_transform(df[["trial_difficulty"]])
     X = df[["trial_difficulty_scaled"]].values
     y = df["rt"].values
     mask = ~np.isnan(y)
@@ -82,7 +82,7 @@ for dataset in datasets:
     y_pred = model.predict(X)
     df["rt_residuals"] = y - y_pred
     df["rt_resint"] = y - y_pred + model.intercept_
-    
+
     # Rename group column
     df.rename(columns={"session_condition": "group"}, inplace=True)
     df["group"] = df["group"].replace({1: "experimental", 2: "control"})
@@ -119,89 +119,11 @@ for dataset in datasets:
         .mean()
         .reset_index()
     )
-
-    # Time-frequency parameters
-    n_freqs = 40
-    tf_freqs = np.linspace(4, 30, n_freqs)
-    tf_cycles = np.linspace(6, 12, n_freqs)
-
-    # Create epochs object for tf
-    tf_data = mne.EpochsArray(tf_data, info_tf, tmin=-2.4)
-
-    # tf-decomposition of data
-    tf_data = (
-        mne.time_frequency.tfr_morlet(
-            tf_data,
-            tf_freqs,
-            n_cycles=tf_cycles,
-            average=False,
-            return_itc=False,
-            n_jobs=-2,
-        )
-        .crop(tmin=-1.9, tmax=1)
-        .decimate(decim=4)
-    )
-
-    # Get baseline indices
-    idx_bl = (tf_data.times >= -1.9) & (tf_data.times <= -1.6)
-
-    # Get average baseline values
-    bl_values = tf_data._data[:, :, :, idx_bl].mean(axis=3).mean(axis=0)
-
-    # Iterate conditions
-    n_trials = []
-    accuracies = []
-    erps = []
-    tfrs = []
-    for row_idx, row in df_grouped.iterrows():
-
-        # get indices
-        idx_df = (df.trajectory == row.trajectory).values
-        idx_df_correct = (df_correct.trajectory == row.trajectory).values
-
-        # Get number of trials
-        n_trials.append(sum(idx_df_correct))
-
-        # If no trial in erp data for sequence remains...
-        if sum(idx_df_correct) == 0:
-
-            accuracies.append(np.nan)
-            erps.append(np.nan)
-            tfrs.append(np.nan)
-            continue
-
-        # Get accuracy for condition
-        accuracies.append(sum(idx_df_correct) / sum(idx_df))
-
-        # Create condition epochs object for erp
-        epochs_erp = mne.EpochsArray(
-            erp_data[idx_df_correct, :, :], info_erp, tmin=-1.7
-        )
-
-        # Get condition erps
-        erps.append(epochs_erp.average().decimate(4))
-
-        # Get condition tf data and apply condition-general dB baseline
-        condition_tf = tf_data[idx_df_correct].average()
-        tmp = condition_tf._data
-        for ch in range(bl_values.shape[0]):
-            for fr in range(bl_values.shape[1]):
-                tmp[ch, fr, :] = 10 * np.log10(
-                    tmp[ch, fr, :].copy() / bl_values[ch, fr]
-                )
-        condition_tf._data = tmp.copy()
-        tfrs.append(condition_tf)
-
-    # Add to grouped df
-    df_grouped["n_trials"] = n_trials
-    df_grouped["accuracy"] = accuracies
-    df_grouped["erps"] = erps
-    df_grouped["tfrs"] = tfrs
-
+    
     # Save result
     fn_out = os.path.join(
         path_out,
-        "fac2_data_" + str(df.id.values[0]) + ".joblib",
+        "fac2_data_behavior_" + str(df.id.values[0]) + ".joblib",
     )
     dump(
         df_grouped,

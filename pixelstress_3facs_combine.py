@@ -37,7 +37,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                     "id": row["id"],
                     "group": row["group"],
                     "stage": row["stage"],
-                    "feedback": row["feedback"],
+                    "trajectory": row["trajectory"],
                     "s": t,
                     "mV": erp_ts[tidx],
                 }
@@ -46,7 +46,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "s"])["mV"]
+        .groupby(["stage", "trajectory", "group", "s"])["mV"]
         .mean()
         .reset_index()
     )
@@ -58,13 +58,15 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         y="mV",
         hue="group",
         style="stage",
-        col="feedback",
+        col="trajectory",
         kind="line",
     )
     plt.show()
-    
+
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=erp_label, hue="stage", style="group", kind="line")
+    sns.relplot(
+        data=df, x="trajectory", y=erp_label, hue="stage", style="group", kind="line"
+    )
     plt.show()
 
     return None
@@ -101,7 +103,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
                         "id": row["id"],
                         "group": row["group"],
                         "stage": row["stage"],
-                        "feedback": row["feedback"],
+                        "trajectory": row["trajectory"],
                         "combined": row["combined"],
                         "s": t,
                         "Hz": f,
@@ -112,7 +114,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "combined", "s", "Hz"])["dB"]
+        .groupby(["stage", "trajectory", "group", "combined", "s", "Hz"])["dB"]
         .mean()
         .reset_index()
     )
@@ -120,7 +122,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Get freq-specific df
     freq_df = (
         new_df[new_df["Hz"].between(tf_freqwin[0], tf_freqwin[1])]
-        .groupby(["stage", "feedback", "group", "s"])
+        .groupby(["stage", "trajectory", "group", "s"])
         .mean()
         .reset_index()
     )
@@ -132,15 +134,17 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         y="dB",
         hue="group",
         style="stage",
-        col="feedback",
+        col="trajectory",
         kind="line",
     )
     plt.show()
-    
+
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=tf_label, hue="stage", style="group", kind="line")
+    sns.relplot(
+        data=df, x="trajectory", y=tf_label, hue="stage", style="group", kind="line"
+    )
     plt.show()
-    
+
     return None
 
 
@@ -174,7 +178,7 @@ df_data = pd.concat(data_in).reset_index()
 
 # Cretae a combined factor variable
 df_data["combined"] = (
-    df_data["feedback"].astype(str)
+    df_data["trajectory"].astype(str)
     + " "
     + df_data["stage"].astype(str)
     + " "
@@ -187,7 +191,7 @@ df = df_data.drop(["erps", "tfrs"], axis=1)
 # Drpo participants =======================================================================================
 
 # IDs to exclude
-ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 32, 40, 48, 49, 50, 52, 83]
+ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 32, 40, 48, 49, 50, 52, 83, 88]
 
 # Remove from dataframes
 df = df[~df["id"].isin(ids_to_drop)].reset_index()
@@ -205,40 +209,56 @@ plt.show()
 
 # Plot rt ========================================================================================================
 
-sns.relplot(data=df, x="feedback", y="rt", hue="stage", style="group", kind="line")
+sns.relplot(data=df, x="trajectory", y="rt", hue="stage", style="group", kind="line")
 plt.show()
 
-sns.relplot(data=df, x="feedback", y="rt_detrended", hue="stage", style="group", kind="line")
+sns.relplot(
+    data=df,
+    x="trajectory",
+    y="rt_resint",
+    hue="stage",
+    style="group",
+    kind="line",
+)
 plt.show()
+
 # Plot ERP ======================================================================================================================
 get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
 
+
 get_freqband(
-    tf_label="frontal_theta_cue_target",
-    tf_timewin=(-0.8, -0.2),
-    tf_freqwin=(4, 6),
+    tf_label="frontal_theta_cti",
+    tf_timewin=(-1.4, -0.2),
+    tf_freqwin=(4, 7),
     channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
 )
 
 get_freqband(
-    tf_label="frontal_alpha",
-    tf_timewin=(-0.8, -0.2),
+    tf_label="frontal_alpha_cti",
+    tf_timewin=(-1.4, -0.2),
     tf_freqwin=(8, 14),
     channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
 )
 
 get_freqband(
-    tf_label="posterior_alpha",
-    tf_timewin=(-1.2, -0.2),
+    tf_label="frontal_theta_target",
+    tf_timewin=(0.2, 0.5),
+    tf_freqwin=(4, 7),
+    channel_selection=["FCz"],
+)
+
+get_freqband(
+    tf_label="posterior_alpha_cti",
+    tf_timewin=(-1.4, -0.2),
     tf_freqwin=(8, 14),
     channel_selection=["POz", "Pz", "PO3", "PO4"],
 )
 
 get_freqband(
-    tf_label="central_beta",
-    tf_timewin=(-1.2, -0.2),
-    tf_freqwin=(18, 30),
+    tf_label="central_beta_cti",
+    tf_timewin=(-1.4, -0.2),
+    tf_freqwin=(16, 20),
     channel_selection=["Cz", "C1", "C2"],
 )
 
@@ -302,18 +322,24 @@ plt.tight_layout()
 plt.show()
 
 
-
 # Plot behavior
-sns.relplot(data=df, x="feedback", y="rt", hue="stage", style="group", kind="line")
+sns.relplot(data=df, x="trajectory", y="rt", hue="stage", style="group", kind="line")
 plt.show()
 sns.relplot(
-    data=df, x="feedback", y="rt_detrended", hue="stage", style="group", kind="line"
+    data=df,
+    x="trajectory",
+    y="rt_detrended",
+    hue="stage",
+    style="group",
+    kind="line",
 )
 plt.show()
 sns.relplot(
-    data=df, x="feedback", y="accuracy", hue="stage", style="group", kind="line"
+    data=df, x="trajectory", y="accuracy", hue="stage", style="group", kind="line"
 )
 plt.show()
 
-sns.relplot(data=df, x="feedback", y="cnv_Fz", hue="stage", style="group", kind="line")
+sns.relplot(
+    data=df, x="trajectory", y="cnv_Fz", hue="stage", style="group", kind="line"
+)
 plt.show()

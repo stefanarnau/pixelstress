@@ -7,6 +7,7 @@ import numpy as np
 import scipy.io
 from joblib import dump
 import sklearn.linear_model
+from sklearn.preprocessing import MinMaxScaler
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -71,13 +72,16 @@ for dataset in datasets:
     df.loc[df["accuracy"] != 1, "rt"] = np.nan
 
     # Remove trial difficulty confound using linear regression
-    X = df[["trial_difficulty"]].values
+    scaler = MinMaxScaler()
+    df["trial_difficulty_scaled"] = scaler.fit_transform(df[["trial_difficulty"]])
+    X = df[["trial_difficulty_scaled"]].values
     y = df["rt"].values
     mask = ~np.isnan(y)
     model = sklearn.linear_model.LinearRegression()
     model.fit(X[mask], y[mask])
     y_pred = model.predict(X)
-    df["rt_detrended"] = y - y_pred
+    df["rt_residuals"] = y - y_pred
+    df["rt_resint"] = y - y_pred + model.intercept_
 
     # Rename group column
     df.rename(columns={"session_condition": "group"}, inplace=True)
@@ -98,6 +102,17 @@ for dataset in datasets:
         labels=["below", "close", "above"],
     )
 
+    # Add variable stage
+    df = df.assign(stage="none")
+    df.stage[(df.sequence_nr >= 2) & (df.sequence_nr <= 6)] = "far"
+    df.stage[(df.sequence_nr >= 8) & (df.sequence_nr <= 12)] = "close"
+
+    # Get rid of not defined trials (regarding the baseline...)
+    mask = (df["stage"] != "none").values
+    df = df[mask]
+    tf_data = tf_data[mask, :, :]
+    erp_data = erp_data[mask, :, :]
+
     # Add variable trajectory
     df = df.assign(trajectory="close")
     df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
@@ -115,7 +130,9 @@ for dataset in datasets:
 
     # Make grouped df
     df_grouped = (
-        df.groupby(["stage", "feedback", "id", "group"])["rt", "rt_detrended"]
+        df.groupby(["stage", "trajectory", "id", "group"])[
+            "rt", "rt_resint", "rt_residuals"
+        ]
         .mean()
         .reset_index()
     )
@@ -123,7 +140,7 @@ for dataset in datasets:
     # Time-frequency parameters
     n_freqs = 40
     tf_freqs = np.linspace(4, 30, n_freqs)
-    tf_cycles = np.linspace(6, 12, n_freqs)
+    tf_cycles = np.linspace(6, 18, n_freqs)
 
     # Create epochs object for tf
     tf_data = mne.EpochsArray(tf_data, info_tf, tmin=-2.4)
@@ -156,9 +173,9 @@ for dataset in datasets:
     for row_idx, row in df_grouped.iterrows():
 
         # get indices
-        idx_df = ((df.feedback == row.feedback) & (df.stage == row.stage)).values
+        idx_df = ((df.trajectory == row.trajectory) & (df.stage == row.stage)).values
         idx_df_correct = (
-            (df_correct.feedback == row.feedback) & (df_correct.stage == row.stage)
+            (df_correct.trajectory == row.trajectory) & (df_correct.stage == row.stage)
         ).values
 
         # Get number of trials

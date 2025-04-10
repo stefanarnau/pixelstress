@@ -36,7 +36,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                 {
                     "id": row["id"],
                     "group": row["group"],
-                    "feedback": row["feedback"],
+                    "trajectory": row["trajectory"],
                     "s": t,
                     "mV": erp_ts[tidx],
                 }
@@ -45,7 +45,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["feedback", "group", "s"])["mV"]
+        .groupby(["trajectory", "group", "s"])["mV"]
         .mean()
         .reset_index()
     )
@@ -55,14 +55,14 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         data=new_df,
         x="s",
         y="mV",
-        style="feedback",
+        style="trajectory",
         col="group",
         kind="line",
     )
     plt.show()
 
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=erp_label, style="group", kind="line")
+    sns.relplot(data=df, x="trajectory", y=erp_label, style="group", kind="line")
     plt.show()
 
     return None
@@ -98,7 +98,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
                     {
                         "id": row["id"],
                         "group": row["group"],
-                        "feedback": row["feedback"],
+                        "trajectory": row["trajectory"],
                         "combined": row["combined"],
                         "s": t,
                         "Hz": f,
@@ -109,7 +109,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["feedback", "group", "combined", "s", "Hz"])["dB"]
+        .groupby(["trajectory", "group", "combined", "s", "Hz"])["dB"]
         .mean()
         .reset_index()
     )
@@ -117,7 +117,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Get freq-specific df
     freq_df = (
         new_df[new_df["Hz"].between(tf_freqwin[0], tf_freqwin[1])]
-        .groupby(["feedback", "group", "s"])
+        .groupby(["trajectory", "group", "s"])
         .mean()
         .reset_index()
     )
@@ -128,13 +128,63 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         x="s",
         y="dB",
         hue="group",
-        col="feedback",
+        col="trajectory",
         kind="line",
     )
     plt.show()
 
     # Plot parameters
-    sns.relplot(data=df, x="feedback", y=tf_label, style="group", kind="line")
+    sns.relplot(data=df, x="trajectory", y=tf_label, style="group", kind="line")
+    plt.show()
+    
+    
+    # Create a 3x4 grid of subplots
+    fig, axes = plt.subplots(2, 3, figsize=(20, 15), sharex=True, sharey=True)
+    
+    # Flatten the axes array for easier iteration
+    axes_flat = axes.flatten()
+    
+    # Get the unique levels of your factor
+    factor_levels = [
+        "above experimental",
+        "close experimental",
+        "below experimental",
+        "above control",
+        "close control",
+        "below control",
+    ]
+    
+    # Iterate through your factor levels
+    for i, level in enumerate(factor_levels):
+    
+        print(level)
+    
+        # Filter the dataframe based on the current factor level
+        subset = new_df[new_df["combined"] == level]
+    
+        # Create a pivot table for the heatmap
+        pivot_data = subset.pivot("Hz", "s", "dB")
+    
+        # Plot the heatmap in the current subplot
+        sns.heatmap(
+            pivot_data, ax=axes_flat[i], cbar=False, vmin=-5, vmax=5, cmap="icefire"
+        )
+    
+        # Set the title for each subplot
+        axes_flat[i].set_title(f"{level}")
+        axes_flat[i].invert_yaxis()
+    
+        axes_flat[i].axvline(x=10, linewidth=2, linestyle="dashed", color="k")
+    
+    # Add a common colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
+    
+    # Adjust the layout and display the plot
+    plt.tight_layout()
+    plt.show()
+    
+    
     plt.show()
 
     return None
@@ -170,7 +220,7 @@ df_data = pd.concat(data_in).reset_index()
 
 # Cretae a combined factor variable
 df_data["combined"] = (
-    df_data["feedback"].astype(str) + " " + df_data["group"].astype(str)
+    df_data["trajectory"].astype(str) + " " + df_data["group"].astype(str)
 )
 
 # Drop eeg data for parameterized df
@@ -179,7 +229,7 @@ df = df_data.drop(["erps", "tfrs"], axis=1)
 # Drpo participants =======================================================================================
 
 # IDs to exclude
-ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 32, 40, 48, 49, 50, 52, 83]
+ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 32, 40, 48, 49, 50, 52, 83, 88]
 
 # Remove from dataframes
 df = df[~df["id"].isin(ids_to_drop)].reset_index()
@@ -197,117 +247,45 @@ plt.show()
 
 # Plot rt ========================================================================================================
 
-sns.relplot(data=df, x="feedback", y="rt", style="group", kind="line")
+sns.relplot(data=df, x="trajectory", y="rt", style="group", kind="line")
 plt.show()
 
-sns.relplot(data=df, x="feedback", y="rt_detrended", style="group", kind="line")
+sns.relplot(data=df, x="trajectory", y="rt_resint", style="group", kind="line")
+plt.show()
+
+sns.relplot(data=df, x="trajectory", y="rt_residuals", style="group", kind="line")
 plt.show()
 
 # Plot ERP ======================================================================================================================
-get_erp(erp_label="cnv_Fz", erp_timewin=(-0.7, 0), channel_selection=["Fz"])
+get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+get_erp(erp_label="cnv_FCz", erp_timewin=(-0.3, 0), channel_selection=["FCz"])
 
 aa = bb
 
 get_freqband(
-    tf_label="frontal_theta_cue_target",
+    tf_label="frontal_theta_target",
     tf_timewin=(0.2, 0.5),
-    tf_freqwin=(4, 6),
-    channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
-)
-
-get_freqband(
-    tf_label="frontal_alpha",
-    tf_timewin=(-0.8, -0.2),
-    tf_freqwin=(8, 14),
+    tf_freqwin=(4, 8),
     channel_selection=["FCz"],
 )
 
 get_freqband(
-    tf_label="posterior_alpha",
-    tf_timewin=(-1.2, -0.2),
-    tf_freqwin=(8, 14),
-    channel_selection=["POz"],
+    tf_label="central_beta_cti",
+    tf_timewin=(-1.3, -0.2),
+    tf_freqwin=(12, 20),
+    channel_selection=["C3", "C4", "C1", "C2"],
 )
 
 get_freqband(
-    tf_label="central_beta",
-    tf_timewin=(-1.2, -0.2),
-    tf_freqwin=(10, 30),
-    channel_selection=["C3", "C4"],
+    tf_label="posterior_alpha_cti",
+    tf_timewin=(-1.3, -0.2),
+    tf_freqwin=(9, 13),
+    channel_selection=["Fz", "FCz"],
 )
+
 
 # Save to csv
 fn = os.path.join(path_in, "combined.csv")
 df.to_csv(fn, index=False)
 
-
-aa = bb
-
-# Create a 3x4 grid of subplots
-fig, axes = plt.subplots(4, 3, figsize=(20, 15), sharex=True, sharey=True)
-
-# Flatten the axes array for easier iteration
-axes_flat = axes.flatten()
-
-# Get the unique levels of your factor
-factor_levels = [
-    "above start experimental",
-    "close start experimental",
-    "below start experimental",
-    "above end experimental",
-    "close end experimental",
-    "below end experimental",
-    "above start control",
-    "close start control",
-    "below start control",
-    "above end control",
-    "close end control",
-    "below end control",
-]
-
-# Iterate through your factor levels
-for i, level in enumerate(factor_levels):
-
-    print(level)
-
-    # Filter the dataframe based on the current factor level
-    subset = new_df[new_df["combined"] == level]
-
-    # Create a pivot table for the heatmap
-    pivot_data = subset.pivot("Hz", "s", "dB")
-
-    # Plot the heatmap in the current subplot
-    sns.heatmap(
-        pivot_data, ax=axes_flat[i], cbar=False, vmin=-5, vmax=5, cmap="Spectral_r"
-    )
-
-    # Set the title for each subplot
-    axes_flat[i].set_title(f"{level}")
-    axes_flat[i].invert_yaxis()
-
-    axes_flat[i].axvline(x=10, linewidth=2, linestyle="dashed", color="k")
-
-# Add a common colorbar
-cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
-
-# Adjust the layout and display the plot
-plt.tight_layout()
-plt.show()
-
-
-# Plot behavior
-sns.relplot(data=df, x="feedback", y="rt", hue="stage", style="group", kind="line")
-plt.show()
-sns.relplot(
-    data=df, x="feedback", y="rt_detrended", hue="stage", style="group", kind="line"
-)
-plt.show()
-sns.relplot(
-    data=df, x="feedback", y="accuracy", hue="stage", style="group", kind="line"
-)
-plt.show()
-
-sns.relplot(data=df, x="feedback", y="cnv_Fz", hue="stage", style="group", kind="line")
-plt.show()
