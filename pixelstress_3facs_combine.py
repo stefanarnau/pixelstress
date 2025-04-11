@@ -144,6 +144,60 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         data=df, x="trajectory", y=tf_label, hue="stage", style="group", kind="line"
     )
     plt.show()
+    
+    # Create a 3x4 grid of subplots
+    fig, axes = plt.subplots(4, 3, figsize=(20, 15), sharex=True, sharey=True)
+    
+    # Flatten the axes array for easier iteration
+    axes_flat = axes.flatten()
+    
+    # Get the unique levels of your factor
+    factor_levels = [
+        "above start experimental",
+        "close start experimental",
+        "below start experimental",
+        "above end experimental",
+        "close end experimental",
+        "below end experimental",
+        "above start control",
+        "close start control",
+        "below start control",
+        "above end control",
+        "close end control",
+        "below end control",
+    ]
+    
+    # Iterate through your factor levels
+    for i, level in enumerate(factor_levels):
+    
+        print(level)
+    
+        # Filter the dataframe based on the current factor level
+        subset = new_df[new_df["combined"] == level]
+    
+        # Create a pivot table for the heatmap
+        pivot_data = subset.pivot("Hz", "s", "dB")
+    
+        # Plot the heatmap in the current subplot
+        sns.heatmap(
+            pivot_data, ax=axes_flat[i], cbar=False, vmin=-5, vmax=5, cmap="Spectral_r"
+        )
+    
+        # Set the title for each subplot
+        axes_flat[i].set_title(f"{level}")
+        axes_flat[i].invert_yaxis()
+    
+        axes_flat[i].axvline(x=10, linewidth=2, linestyle="dashed", color="k")
+    
+    # Add a common colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
+    
+    # Adjust the layout and display the plot
+    plt.tight_layout()
+    plt.show()
+
+
 
     return None
 
@@ -224,42 +278,35 @@ plt.show()
 
 # Plot ERP ======================================================================================================================
 get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
+
+
+info = df_data["erps"][0].info
+montage = mne.channels.make_standard_montage('standard_1020')
+info.set_montage(montage)
+
+mne.viz.plot_topomap(data, info)
+
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
 
-
 get_freqband(
-    tf_label="frontal_theta_cti",
-    tf_timewin=(-1.4, -0.2),
-    tf_freqwin=(4, 7),
-    channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
-)
-
-get_freqband(
-    tf_label="frontal_alpha_cti",
-    tf_timewin=(-1.4, -0.2),
-    tf_freqwin=(8, 14),
-    channel_selection=["FCz", "Fz", "FC1", "FC2", "F1", "F2"],
-)
-
-get_freqband(
-    tf_label="frontal_theta_target",
+    tf_label="frontal_theta_target_FCz",
     tf_timewin=(0.2, 0.5),
     tf_freqwin=(4, 7),
     channel_selection=["FCz"],
 )
 
 get_freqband(
-    tf_label="posterior_alpha_cti",
-    tf_timewin=(-1.4, -0.2),
+    tf_label="alpha_cti",
+    tf_timewin=(-1.2, -0.3),
     tf_freqwin=(8, 14),
-    channel_selection=["POz", "Pz", "PO3", "PO4"],
+    channel_selection=["POz"],
 )
 
 get_freqband(
     tf_label="central_beta_cti",
-    tf_timewin=(-1.4, -0.2),
+    tf_timewin=(-1.2, -0.3),
     tf_freqwin=(16, 20),
-    channel_selection=["Cz", "C1", "C2"],
+    channel_selection=["C3", "C4", "C1", "C2", "CP3", "CP4"],
 )
 
 # Save to csv
@@ -269,77 +316,6 @@ df.to_csv(fn, index=False)
 
 aa = bb
 
-# Create a 3x4 grid of subplots
-fig, axes = plt.subplots(4, 3, figsize=(20, 15), sharex=True, sharey=True)
-
-# Flatten the axes array for easier iteration
-axes_flat = axes.flatten()
-
-# Get the unique levels of your factor
-factor_levels = [
-    "above start experimental",
-    "close start experimental",
-    "below start experimental",
-    "above end experimental",
-    "close end experimental",
-    "below end experimental",
-    "above start control",
-    "close start control",
-    "below start control",
-    "above end control",
-    "close end control",
-    "below end control",
-]
-
-# Iterate through your factor levels
-for i, level in enumerate(factor_levels):
-
-    print(level)
-
-    # Filter the dataframe based on the current factor level
-    subset = new_df[new_df["combined"] == level]
-
-    # Create a pivot table for the heatmap
-    pivot_data = subset.pivot("Hz", "s", "dB")
-
-    # Plot the heatmap in the current subplot
-    sns.heatmap(
-        pivot_data, ax=axes_flat[i], cbar=False, vmin=-5, vmax=5, cmap="Spectral_r"
-    )
-
-    # Set the title for each subplot
-    axes_flat[i].set_title(f"{level}")
-    axes_flat[i].invert_yaxis()
-
-    axes_flat[i].axvline(x=10, linewidth=2, linestyle="dashed", color="k")
-
-# Add a common colorbar
-cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
-
-# Adjust the layout and display the plot
-plt.tight_layout()
-plt.show()
 
 
-# Plot behavior
-sns.relplot(data=df, x="trajectory", y="rt", hue="stage", style="group", kind="line")
-plt.show()
-sns.relplot(
-    data=df,
-    x="trajectory",
-    y="rt_detrended",
-    hue="stage",
-    style="group",
-    kind="line",
-)
-plt.show()
-sns.relplot(
-    data=df, x="trajectory", y="accuracy", hue="stage", style="group", kind="line"
-)
-plt.show()
 
-sns.relplot(
-    data=df, x="trajectory", y="cnv_Fz", hue="stage", style="group", kind="line"
-)
-plt.show()
