@@ -18,8 +18,59 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Get time idx
     erp_times = df_data["erps"][0].times
     erp_win = (erp_times >= erp_timewin[0]) & (erp_times <= erp_timewin[1])
+    
+    # Build df for topo
+    topo_df = []
+    for row_idx, row in df_data.iterrows():
+        topovals = row["erps"].copy().data[:, erp_win].mean(axis=1)
+        topo_df.append(
+                {
+                    "id": row["id"],
+                    "group": row["group"],
+                    "stage": row["stage"],
+                    "trajectory": row["trajectory"],
+                    "topovals": topovals,
+                }
+            )
+        
+    # Average topo df across ids
+    topo_df = (
+        pd.DataFrame(topo_df)
+        .groupby(["stage", "trajectory", "group"])["topovals"]
+        .mean()
+        .reset_index()
+    )
+    
+   # Re-order topo df
+    new_order = [7,9,11,1,3,5,6,8,10,0,2,4]
+    topo_df = topo_df.reindex(new_order).reset_index()
+        
+    # Plot CNV topos
+    nrows, ncols = 2, 6
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2*ncols, 2*nrows))
+    
+    for i, ax in enumerate(axes.flat):
+        pd = topo_df["topovals"][i]
+        condition_label = topo_df["group"][i] + " " + topo_df["trajectory"][i] + " " + topo_df["stage"][i]
+        mne.viz.plot_topomap(
+            pd, info, axes=ax, show=False, contours=0, cmap='nipy_spectral', res=300, size=5, vlim=(-4, 4)
+        )
+        ax.set_title(condition_label)
 
-    # Iterate df
+    plt.tight_layout()
+    plt.show()
+
+
+    # Iterate topo df
+    for row_idx, row in topo_df.iterrows():
+        
+        # Get topo values
+        pd = row["topovals"]
+        mne.viz.plot_topomap(pd, info, res=300, size=5, contours=0, vlim=(-1,1))
+        
+        
+        
+    # Iterate df and create long df including time points as rows
     new_df = []
     for row_idx, row in df_data.iterrows():
 
@@ -52,7 +103,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     )
 
     # plot erp
-    sns.relplot(
+    g = sns.relplot(
         data=new_df,
         x="s",
         y="mV",
@@ -60,16 +111,21 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         style="stage",
         col="trajectory",
         kind="line",
+        palette=["crimson", "dimgrey"],
     )
+    
+    # Highlight x-axis range
+    for ax in g.axes.flat:
+        ax.axvspan(erp_timewin[0], erp_timewin[1], color='silver', alpha=0.5)
+        ax.invert_yaxis()
+        
     plt.show()
 
     # Plot parameters
-    sns.relplot(
-        data=df, x="trajectory", y=erp_label, hue="stage", style="group", kind="line"
-    )
+    sns.relplot(data=df, x="trajectory", y=erp_label, hue="group", style="stage", kind="line", palette=["crimson", "dimgrey"])
     plt.show()
 
-    return None
+    return df
 
 
 # Function for parameterizing and plotting a frequency band ======================================================================
@@ -140,9 +196,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     plt.show()
 
     # Plot parameters
-    sns.relplot(
-        data=df, x="trajectory", y=tf_label, hue="stage", style="group", kind="line"
-    )
+    sns.relplot(data=df, x="trajectory", y=tf_label, hue="group", style="stage", kind="line", palette="colorblind")
     plt.show()
     
     # Create a 3x4 grid of subplots
@@ -230,6 +284,11 @@ for dataset in datasets:
 # Concatenate
 df_data = pd.concat(data_in).reset_index()
 
+# Get an info object
+info = df_data["erps"][0].info
+montage = mne.channels.make_standard_montage('standard_1020')
+info.set_montage(montage)
+
 # Cretae a combined factor variable
 df_data["combined"] = (
     df_data["trajectory"].astype(str)
@@ -263,28 +322,15 @@ plt.show()
 
 # Plot rt ========================================================================================================
 
-sns.relplot(data=df, x="trajectory", y="rt", hue="stage", style="group", kind="line")
+sns.relplot(data=df, x="trajectory", y="rt", hue="group", style="stage", kind="line", palette="colorblind")
 plt.show()
 
-sns.relplot(
-    data=df,
-    x="trajectory",
-    y="rt_resint",
-    hue="stage",
-    style="group",
-    kind="line",
-)
+sns.relplot(data=df, x="trajectory", y="accuracy", hue="group", style="stage", kind="line", palette="colorblind")
 plt.show()
 
 # Plot ERP ======================================================================================================================
 get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
 
-
-info = df_data["erps"][0].info
-montage = mne.channels.make_standard_montage('standard_1020')
-info.set_montage(montage)
-
-mne.viz.plot_topomap(data, info)
 
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
 
@@ -313,6 +359,12 @@ get_freqband(
 fn = os.path.join(path_in, "combined.csv")
 df.to_csv(fn, index=False)
 
+info = df_data["erps"][0].info
+montage = mne.channels.make_standard_montage('standard_1020')
+info.set_montage(montage)
+
+pd = np.random.rand(65) - 0.5
+mne.viz.plot_topomap(pd, info, res=300, size=5, contours=0, vlim=(-1,1))
 
 aa = bb
 

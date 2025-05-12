@@ -11,7 +11,7 @@ data <- read.csv(file.path(path_in, "combined.csv"))
 # Perform mixed ANOVA
 anova_results <- ezANOVA(
   data = data,
-  dv = central_beta_cti,  # Dependent variable
+  dv = cnv_Cz,  # Dependent variable
   wid = id,  # Replace with your subject ID column name
   between = group,  # Between-subjects factor
   within = .(trajectory, stage),  # Within-subjects factors
