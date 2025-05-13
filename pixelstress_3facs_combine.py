@@ -8,8 +8,13 @@ import scipy.io
 from joblib import load
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import statsmodels.formula.api as smf
 import itertools
+
+# Some global settings
+colormap = "rainbow"
+lineplot_palette = ["dimgrey", "crimson"]
 
 
 # Function for parameterizing and plotting ERP =========================================================================
@@ -18,58 +23,62 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Get time idx
     erp_times = df_data["erps"][0].times
     erp_win = (erp_times >= erp_timewin[0]) & (erp_times <= erp_timewin[1])
-    
+
     # Build df for topo
     topo_df = []
     for row_idx, row in df_data.iterrows():
         topovals = row["erps"].copy().data[:, erp_win].mean(axis=1)
         topo_df.append(
-                {
-                    "id": row["id"],
-                    "group": row["group"],
-                    "stage": row["stage"],
-                    "trajectory": row["trajectory"],
-                    "topovals": topovals,
-                }
-            )
-        
+            {
+                "id": row["id"],
+                "group": row["group"],
+                "stage": row["stage"],
+                "feedback": row["feedback"],
+                "topovals": topovals,
+            }
+        )
+
     # Average topo df across ids
     topo_df = (
         pd.DataFrame(topo_df)
-        .groupby(["stage", "trajectory", "group"])["topovals"]
+        .groupby(["stage", "feedback", "group"])["topovals"]
         .mean()
         .reset_index()
     )
-    
-   # Re-order topo df
-    new_order = [7,9,11,1,3,5,6,8,10,0,2,4]
+
+    # Re-order topo df
+    new_order = [7, 9, 11, 1, 3, 5, 6, 8, 10, 0, 2, 4]
     topo_df = topo_df.reindex(new_order).reset_index()
-        
+
     # Plot CNV topos
     nrows, ncols = 2, 6
-    fig, axes = plt.subplots(nrows, ncols, figsize=(2*ncols, 2*nrows))
-    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2 * ncols, 2 * nrows))
+
     for i, ax in enumerate(axes.flat):
-        pd = topo_df["topovals"][i]
-        condition_label = topo_df["group"][i] + " " + topo_df["trajectory"][i] + " " + topo_df["stage"][i]
+        plot_data = topo_df["topovals"][i]
+        condition_label = (
+            topo_df["group"][i]
+            + " "
+            + topo_df["feedback"][i]
+            + " "
+            + topo_df["stage"][i]
+        )
         mne.viz.plot_topomap(
-            pd, info, axes=ax, show=False, contours=0, cmap='nipy_spectral', res=300, size=5, vlim=(-4, 4)
+            plot_data,
+            info,
+            axes=ax,
+            show=False,
+            contours=0,
+            cmap=colormap,
+            res=300,
+            size=5,
+            vlim=(-3.5, 3.5),
         )
         ax.set_title(condition_label)
 
     plt.tight_layout()
     plt.show()
 
-
-    # Iterate topo df
-    for row_idx, row in topo_df.iterrows():
-        
-        # Get topo values
-        pd = row["topovals"]
-        mne.viz.plot_topomap(pd, info, res=300, size=5, contours=0, vlim=(-1,1))
-        
-        
-        
     # Iterate df and create long df including time points as rows
     new_df = []
     for row_idx, row in df_data.iterrows():
@@ -88,7 +97,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                     "id": row["id"],
                     "group": row["group"],
                     "stage": row["stage"],
-                    "trajectory": row["trajectory"],
+                    "feedback": row["feedback"],
                     "s": t,
                     "mV": erp_ts[tidx],
                 }
@@ -97,7 +106,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "trajectory", "group", "s"])["mV"]
+        .groupby(["stage", "feedback", "group", "s"])["mV"]
         .mean()
         .reset_index()
     )
@@ -109,20 +118,28 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         y="mV",
         hue="group",
         style="stage",
-        col="trajectory",
+        col="feedback",
         kind="line",
-        palette=["crimson", "dimgrey"],
+        palette=lineplot_palette,
     )
-    
+
     # Highlight x-axis range
     for ax in g.axes.flat:
-        ax.axvspan(erp_timewin[0], erp_timewin[1], color='silver', alpha=0.5)
+        ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
         ax.invert_yaxis()
-        
+
     plt.show()
 
     # Plot parameters
-    sns.relplot(data=df, x="trajectory", y=erp_label, hue="group", style="stage", kind="line", palette=["crimson", "dimgrey"])
+    sns.relplot(
+        data=df,
+        x="feedback",
+        y=erp_label,
+        hue="group",
+        style="stage",
+        kind="line",
+        palette=lineplot_palette,
+    )
     plt.show()
 
     return df
@@ -159,7 +176,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
                         "id": row["id"],
                         "group": row["group"],
                         "stage": row["stage"],
-                        "trajectory": row["trajectory"],
+                        "feedback": row["feedback"],
                         "combined": row["combined"],
                         "s": t,
                         "Hz": f,
@@ -170,7 +187,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "trajectory", "group", "combined", "s", "Hz"])["dB"]
+        .groupby(["stage", "feedback", "group", "combined", "s", "Hz"])["dB"]
         .mean()
         .reset_index()
     )
@@ -178,80 +195,159 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     # Get freq-specific df
     freq_df = (
         new_df[new_df["Hz"].between(tf_freqwin[0], tf_freqwin[1])]
-        .groupby(["stage", "trajectory", "group", "s"])
+        .groupby(["stage", "feedback", "group", "s"])
         .mean()
         .reset_index()
     )
 
     # plot freqband
-    sns.relplot(
+    g = sns.relplot(
         data=freq_df,
         x="s",
         y="dB",
         hue="group",
         style="stage",
-        col="trajectory",
+        col="feedback",
         kind="line",
+        palette=lineplot_palette,
     )
+
+    # Highlight x-axis range
+    for ax in g.axes.flat:
+        ax.axvspan(tf_timewin[0], tf_timewin[1], color="silver", alpha=0.5)
+        ax.invert_yaxis()
+
     plt.show()
 
     # Plot parameters
-    sns.relplot(data=df, x="trajectory", y=tf_label, hue="group", style="stage", kind="line", palette="colorblind")
+    sns.relplot(
+        data=df,
+        x="feedback",
+        y=tf_label,
+        hue="group",
+        style="stage",
+        kind="line",
+        palette=lineplot_palette,
+    )
     plt.show()
-    
-    # Create a 3x4 grid of subplots
-    fig, axes = plt.subplots(4, 3, figsize=(20, 15), sharex=True, sharey=True)
-    
-    # Flatten the axes array for easier iteration
-    axes_flat = axes.flatten()
     
     # Get the unique levels of your factor
     factor_levels = [
-        "above start experimental",
-        "close start experimental",
-        "below start experimental",
-        "above end experimental",
-        "close end experimental",
-        "below end experimental",
-        "above start control",
-        "close start control",
-        "below start control",
-        "above end control",
-        "close end control",
-        "below end control",
+        "exp above start",
+        "exp close start",
+        "exp below start",
+        "exp above end",
+        "exp close end",
+        "exp below end",
+        "ctrl above start",
+        "ctrl close start",
+        "ctrl below start",
+        "ctrl above end",
+        "ctrl close end",
+        "ctrl below end",
     ]
-    
+
+    # Create a 3x4 grid of subplots
+    fig, axes = plt.subplots(4, 3, figsize=(30, 25), dpi=300, sharex=True, sharey=True)
+
+    # Flatten the axes array for easier iteration
+    axes_flat = axes.flatten()
+
     # Iterate through your factor levels
     for i, level in enumerate(factor_levels):
-    
-        print(level)
-    
+
         # Filter the dataframe based on the current factor level
         subset = new_df[new_df["combined"] == level]
-    
+
         # Create a pivot table for the heatmap
         pivot_data = subset.pivot("Hz", "s", "dB")
-    
+
         # Plot the heatmap in the current subplot
         sns.heatmap(
-            pivot_data, ax=axes_flat[i], cbar=False, vmin=-5, vmax=5, cmap="Spectral_r"
+            pivot_data, ax=axes_flat[i], cbar=False, vmin=-4, vmax=4, cmap=colormap
         )
-    
+
         # Set the title for each subplot
-        axes_flat[i].set_title(f"{level}")
+        axes_flat[i].set_title(f"{level}", fontsize=32)
         axes_flat[i].invert_yaxis()
+
+        # Plot lines at cue onset and at target onset
+        idx_onset_cue = np.abs(tf_times - (-1.7)).argmin()
+        idx_onset_target = np.abs(tf_times).argmin()
+        axes_flat[i].axvline(
+            x=idx_onset_cue, linewidth=1.5, linestyle="dashed", color="k"
+        )
+        axes_flat[i].axvline(
+            x=idx_onset_target, linewidth=1.5, linestyle="dashed", color="k"
+        )
+
+        # Highlight roi
+        idx_onset_roi_time = np.abs(tf_times - tf_timewin[0]).argmin()
+        idx_onset_roi_freq = np.abs(tf_freqs - tf_freqwin[0]).argmin()
+        idx_offset_roi_time = np.abs(tf_times - tf_timewin[1]).argmin()
+        idx_offset_roi_freq = np.abs(tf_freqs - tf_freqwin[1]).argmin()
+
+        # Get with and height
+        rect_width, rect_height = (
+            idx_offset_roi_time - idx_onset_roi_time,
+            idx_offset_roi_freq - idx_onset_roi_freq,
+        )
+
+        # Create a rectangle
+        rect = patches.Rectangle(
+            (idx_onset_roi_time, idx_onset_roi_freq),
+            rect_width,
+            rect_height,
+            fill=False,
+            edgecolor="black",
+            lw=2,
+        )
+
+        # Add the rectangle to the heatmap
+        axes_flat[i].add_patch(rect)
+        
+        # Set xticks to match your data, showing only those at multiples of 0.2
+        xticks = pivot_data.columns.values
+        show_xticks = [j for j, x in enumerate(xticks) if np.isclose(x % 0.2, 0, atol=1e-6)]
+        axes_flat[i].set_xticks(show_xticks)
+        axes_flat[i].set_xticklabels([f"{xticks[j]:.1f}" for j in show_xticks], fontsize=30)
     
-        axes_flat[i].axvline(x=10, linewidth=2, linestyle="dashed", color="k")
+        # Set yticks (optional, similar logic)
+        yticks = pivot_data.index.values
+        axes_flat[i].set_yticks(np.arange(len(yticks)))
+        axes_flat[i].set_yticklabels([f"{y:.1f}" for y in yticks], fontsize=30)
     
-    # Add a common colorbar
+        # Only label y-axis on the leftmost plots
+        if i % 3 != 0:
+            axes_flat[i].set_ylabel("")
+            axes_flat[i].set_yticklabels([])
+        else:
+            axes_flat[i].set_ylabel("Frequency (Hz)", fontsize=32)
+    
+        # Only label x-axis on the bottom plots
+        if i < 9:
+            axes_flat[i].set_xlabel("")
+            axes_flat[i].set_xticklabels([])
+        else:
+            axes_flat[i].set_xlabel("Time (s)", fontsize=32)
+
+    # Shared colorbar (point 5)
+    # Use the last heatmap's QuadMesh for the colorbar (or any, since vmin/vmax are fixed)
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-    fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
-    
-    # Adjust the layout and display the plot
-    plt.tight_layout()
+    cbar = fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
+    cbar.ax.tick_params(labelsize=28)
+    cbar.set_label("dB", fontsize=32)
+
+    plt.subplots_adjust(
+        left=0.2,
+        right=0.89,
+        top=0.94,
+        bottom=0.08,
+        wspace=0.1,
+        hspace=0.2,
+    )
+
     plt.show()
-
-
 
     return None
 
@@ -284,18 +380,24 @@ for dataset in datasets:
 # Concatenate
 df_data = pd.concat(data_in).reset_index()
 
+# Rename trajectory column
+df_data = df_data.rename(columns={"trajectory": "feedback"})
+
+# Rename groups
+df_data["group"].replace({"experimental": "exp", "control": "ctrl"}, inplace=True)
+
 # Get an info object
 info = df_data["erps"][0].info
-montage = mne.channels.make_standard_montage('standard_1020')
+montage = mne.channels.make_standard_montage("standard_1020")
 info.set_montage(montage)
 
 # Cretae a combined factor variable
 df_data["combined"] = (
-    df_data["trajectory"].astype(str)
+    df_data["group"].astype(str)
+    + " "
+    + df_data["feedback"].astype(str)
     + " "
     + df_data["stage"].astype(str)
-    + " "
-    + df_data["group"].astype(str)
 )
 
 # Drop eeg data for parameterized df
@@ -322,28 +424,52 @@ plt.show()
 
 # Plot rt ========================================================================================================
 
-sns.relplot(data=df, x="trajectory", y="rt", hue="group", style="stage", kind="line", palette="colorblind")
+sns.relplot(
+    data=df,
+    x="feedback",
+    y="rt",
+    hue="group",
+    style="stage",
+    kind="line",
+    palette=["dimgrey", "crimson"],
+)
 plt.show()
 
-sns.relplot(data=df, x="trajectory", y="accuracy", hue="group", style="stage", kind="line", palette="colorblind")
+sns.relplot(
+    data=df,
+    x="feedback",
+    y="accuracy",
+    hue="group",
+    style="stage",
+    kind="line",
+    palette=["dimgrey", "crimson"],
+)
 plt.show()
 
 # Plot ERP ======================================================================================================================
+
 get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
-
-
 get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+
+# Plot ERSP ======================================================================================================================
 
 get_freqband(
     tf_label="frontal_theta_target_FCz",
-    tf_timewin=(0.2, 0.5),
+    tf_timewin=(0.1, 0.4),
     tf_freqwin=(4, 7),
     channel_selection=["FCz"],
 )
 
 get_freqband(
+    tf_label="frontal_theta_target_Fz",
+    tf_timewin=(0.1, 0.4),
+    tf_freqwin=(4, 7),
+    channel_selection=["Fz", "FCz", "FC1", "FC2", "F1", "F2"],
+)
+
+get_freqband(
     tf_label="alpha_cti",
-    tf_timewin=(-1.2, -0.3),
+    tf_timewin=(-1.2, -0),
     tf_freqwin=(8, 14),
     channel_selection=["POz"],
 )
@@ -359,15 +485,4 @@ get_freqband(
 fn = os.path.join(path_in, "combined.csv")
 df.to_csv(fn, index=False)
 
-info = df_data["erps"][0].info
-montage = mne.channels.make_standard_montage('standard_1020')
-info.set_montage(montage)
-
-pd = np.random.rand(65) - 0.5
-mne.viz.plot_topomap(pd, info, res=300, size=5, contours=0, vlim=(-1,1))
-
 aa = bb
-
-
-
-
