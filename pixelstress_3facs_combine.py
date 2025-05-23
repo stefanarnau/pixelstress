@@ -14,7 +14,7 @@ import itertools
 
 # Some global settings
 colormap = "rainbow"
-lineplot_palette = ["dimgrey", "crimson"]
+lineplot_palette = ["#bbbbbb", "#bb11bb", "#11bbbb"]
 
 
 # Function for parameterizing and plotting ERP =========================================================================
@@ -116,9 +116,9 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         data=new_df,
         x="s",
         y="mV",
-        hue="group",
-        style="stage",
-        col="feedback",
+        hue="feedback",
+        style="group",
+        col="stage",
         kind="line",
         palette=lineplot_palette,
     )
@@ -131,14 +131,16 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     plt.show()
 
     # Plot parameters
-    sns.relplot(
+    sns.catplot(
         data=df,
-        x="feedback",
+        x="group",
         y=erp_label,
-        hue="group",
-        style="stage",
-        kind="line",
+        hue="feedback",
+        kind="boxen",
+        col="stage",
+        k_depth=4,
         palette=lineplot_palette,
+        col_order=["start", "end"],
     )
     plt.show()
 
@@ -205,9 +207,9 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         data=freq_df,
         x="s",
         y="dB",
-        hue="group",
-        style="stage",
-        col="feedback",
+        hue="feedback",
+        style="group",
+        col="stage",
         kind="line",
         palette=lineplot_palette,
     )
@@ -220,17 +222,19 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     plt.show()
 
     # Plot parameters
-    sns.relplot(
+    sns.catplot(
         data=df,
-        x="feedback",
+        x="group",
         y=tf_label,
-        hue="group",
-        style="stage",
-        kind="line",
+        hue="feedback",
+        kind="boxen",
+        col="stage",
+        k_depth=4,
         palette=lineplot_palette,
+        col_order=["start", "end"],
     )
     plt.show()
-    
+
     # Get the unique levels of your factor
     factor_levels = [
         "exp above start",
@@ -305,25 +309,29 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
 
         # Add the rectangle to the heatmap
         axes_flat[i].add_patch(rect)
-        
+
         # Set xticks to match your data, showing only those at multiples of 0.2
         xticks = pivot_data.columns.values
-        show_xticks = [j for j, x in enumerate(xticks) if np.isclose(x % 0.2, 0, atol=1e-6)]
+        show_xticks = [
+            j for j, x in enumerate(xticks) if np.isclose(x % 0.2, 0, atol=1e-6)
+        ]
         axes_flat[i].set_xticks(show_xticks)
-        axes_flat[i].set_xticklabels([f"{xticks[j]:.1f}" for j in show_xticks], fontsize=30)
-    
+        axes_flat[i].set_xticklabels(
+            [f"{xticks[j]:.1f}" for j in show_xticks], fontsize=30
+        )
+
         # Set yticks (optional, similar logic)
         yticks = pivot_data.index.values
         axes_flat[i].set_yticks(np.arange(len(yticks)))
         axes_flat[i].set_yticklabels([f"{y:.1f}" for y in yticks], fontsize=30)
-    
+
         # Only label y-axis on the leftmost plots
         if i % 3 != 0:
             axes_flat[i].set_ylabel("")
             axes_flat[i].set_yticklabels([])
         else:
             axes_flat[i].set_ylabel("Frequency (Hz)", fontsize=32)
-    
+
         # Only label x-axis on the bottom plots
         if i < 9:
             axes_flat[i].set_xlabel("")
@@ -422,27 +430,32 @@ ax.set_title("n trials")
 plt.tight_layout()
 plt.show()
 
-# Plot rt ========================================================================================================
 
-sns.relplot(
+# Plot behavior ========================================================================================================
+
+sns.catplot(
     data=df,
-    x="feedback",
+    x="group",
     y="rt",
-    hue="group",
-    style="stage",
-    kind="line",
-    palette=["dimgrey", "crimson"],
+    hue="feedback",
+    kind="boxen",
+    col="stage",
+    k_depth=4,
+    palette=lineplot_palette,
+    col_order=["start", "end"],
 )
 plt.show()
 
-sns.relplot(
+sns.catplot(
     data=df,
-    x="feedback",
+    x="group",
     y="accuracy",
-    hue="group",
-    style="stage",
-    kind="line",
-    palette=["dimgrey", "crimson"],
+    hue="feedback",
+    kind="boxen",
+    col="stage",
+    k_depth=4,
+    palette=lineplot_palette,
+    col_order=["start", "end"],
 )
 plt.show()
 
