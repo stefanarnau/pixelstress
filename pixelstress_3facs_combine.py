@@ -9,6 +9,8 @@ from joblib import load
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
 import statsmodels.formula.api as smf
 import itertools
 
@@ -34,14 +36,14 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                 "group": row["group"],
                 "stage": row["stage"],
                 "feedback": row["feedback"],
-                "topovals": topovals,
+                "μV": topovals,
             }
         )
 
     # Average topo df across ids
     topo_df = (
         pd.DataFrame(topo_df)
-        .groupby(["stage", "feedback", "group"])["topovals"]
+        .groupby(["stage", "feedback", "group"])["μV"]
         .mean()
         .reset_index()
     )
@@ -50,12 +52,12 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     new_order = [7, 9, 11, 1, 3, 5, 6, 8, 10, 0, 2, 4]
     topo_df = topo_df.reindex(new_order).reset_index()
 
-    # Plot CNV topos
+    # Subplot grid for topos
     nrows, ncols = 2, 6
     fig, axes = plt.subplots(nrows, ncols, figsize=(2 * ncols, 2 * nrows))
-
+    
     for i, ax in enumerate(axes.flat):
-        plot_data = topo_df["topovals"][i]
+        plot_data = topo_df["μV"][i]
         condition_label = (
             topo_df["group"][i]
             + " "
@@ -75,9 +77,29 @@ def get_erp(erp_label, erp_timewin, channel_selection):
             vlim=(-3.5, 3.5),
         )
         ax.set_title(condition_label)
-
+    
     plt.tight_layout()
+    
+    # Make space for the colorbar
+    fig.subplots_adjust(right=0.85)
+    
+    # Create colorbar axis
+    cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
+    
+    # Create a ScalarMappable for the colorbar
+    norm = Normalize(vmin=-3.5, vmax=3.5)
+    sm = ScalarMappable(norm=norm, cmap=colormap)
+    sm.set_array([])
+    
+    # Add colorbar with label
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label('μV', rotation=90, labelpad=10)
+    
     plt.show()
+    
+    # Save
+    fn = os.path.join(path_out, erp_label + "_topos.png")
+    fig.savefig(fn, dpi=300)
 
     # Iterate df and create long df including time points as rows
     new_df = []
@@ -99,14 +121,14 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                     "stage": row["stage"],
                     "feedback": row["feedback"],
                     "s": t,
-                    "mV": erp_ts[tidx],
+                    "μV": erp_ts[tidx],
                 }
             )
 
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "s"])["mV"]
+        .groupby(["stage", "feedback", "group", "s"])["μV"]
         .mean()
         .reset_index()
     )
@@ -115,12 +137,13 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     g = sns.relplot(
         data=new_df,
         x="s",
-        y="mV",
+        y="μV",
         hue="feedback",
         style="group",
         col="stage",
         kind="line",
         palette=lineplot_palette,
+        col_order=["start", "end"],
     )
 
     # Highlight x-axis range
@@ -128,13 +151,17 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
         ax.invert_yaxis()
 
-    plt.show()
+    # Save
+    fn = os.path.join(path_out, erp_label + "_erp.png")
+    g.savefig(fn, dpi=300)
 
     # Plot parameters
-    sns.catplot(
-        data=df,
+    df_plot = df.copy()
+    df_plot = df_plot.rename(columns={erp_label: "μV"})
+    g = sns.catplot(
+        data=df_plot,
         x="group",
-        y=erp_label,
+        y="μV",
         hue="feedback",
         kind="boxen",
         col="stage",
@@ -142,7 +169,10 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         palette=lineplot_palette,
         col_order=["start", "end"],
     )
-    plt.show()
+
+    # Save
+    fn = os.path.join(path_out, erp_label + "_boxen.png")
+    g.savefig(fn, dpi=300)
 
     return df
 
@@ -212,6 +242,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         col="stage",
         kind="line",
         palette=lineplot_palette,
+        col_order=["start", "end"],
     )
 
     # Highlight x-axis range
@@ -219,13 +250,17 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         ax.axvspan(tf_timewin[0], tf_timewin[1], color="silver", alpha=0.5)
         ax.invert_yaxis()
 
-    plt.show()
+    # Save
+    fn = os.path.join(path_out, tf_label + "_lineplot.png")
+    g.savefig(fn, dpi=300)
 
     # Plot parameters
-    sns.catplot(
-        data=df,
+    df_plot = df.copy()
+    df_plot = df_plot.rename(columns={tf_label: "dB"})
+    g = sns.catplot(
+        data=df_plot,
         x="group",
-        y=tf_label,
+        y="dB",
         hue="feedback",
         kind="boxen",
         col="stage",
@@ -233,7 +268,10 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         palette=lineplot_palette,
         col_order=["start", "end"],
     )
-    plt.show()
+
+    # Save
+    fn = os.path.join(path_out, tf_label + "_boxen.png")
+    g.savefig(fn, dpi=300)
 
     # Get the unique levels of your factor
     factor_levels = [
@@ -364,6 +402,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/3_3fac_data/"
+path_out = "/mnt/data_dump/pixelstress/4_results/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*.joblib")
@@ -433,7 +472,7 @@ plt.show()
 
 # Plot behavior ========================================================================================================
 
-sns.catplot(
+g = sns.catplot(
     data=df,
     x="group",
     y="rt",
@@ -444,9 +483,12 @@ sns.catplot(
     palette=lineplot_palette,
     col_order=["start", "end"],
 )
-plt.show()
 
-sns.catplot(
+# Save
+fn = os.path.join(path_out, "rt_boxen.png")
+g.savefig(fn, dpi=300)
+
+g = sns.catplot(
     data=df,
     x="group",
     y="accuracy",
@@ -457,7 +499,10 @@ sns.catplot(
     palette=lineplot_palette,
     col_order=["start", "end"],
 )
-plt.show()
+
+# Save
+fn = os.path.join(path_out, "acc_boxen.png")
+g.savefig(fn, dpi=300)
 
 # Plot ERP ======================================================================================================================
 
@@ -495,7 +540,7 @@ get_freqband(
 )
 
 # Save to csv
-fn = os.path.join(path_in, "combined.csv")
+fn = os.path.join(path_out, "stats_table.csv")
 df.to_csv(fn, index=False)
 
 aa = bb
