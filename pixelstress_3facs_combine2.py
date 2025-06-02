@@ -8,7 +8,7 @@ import scipy.io
 from joblib import load
 import seaborn as sns
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+from matplotlib.patches import Rectangle
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 import statsmodels.formula.api as smf
@@ -313,130 +313,119 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         "ctrl below end",
     ]
 
-    # Create a 3x4 grid of subplots
-    fig, axes = plt.subplots(4, 3, figsize=(40, 30), dpi=300, sharex=True, sharey=True)
+
+
     
-    plt.subplots_adjust(
-        left=0.25,
-        right=0.89,
-        top=0.97,
-        bottom=0.08,
-        wspace=0.1,
-        hspace=0.2,
-    )
-
-    # Flatten the axes array for easier iteration
-    axes_flat = axes.flatten()
-
-    # Iterate through your factor levels
+    fig, axes = plt.subplots(4, 3, figsize=(15, 12), sharex=True, sharey=True)
+    fig.suptitle(f"ERSP at {' '.join(channel_selection)}", fontsize=24)
+    
+    axes = axes.flatten()
+    
     for i, level in enumerate(factor_levels):
-
+        ax = axes[i]
         subset = new_df[new_df["combined"] == level]
-        pivot_data = subset.pivot("Hz", "s", "dB")
+        pivot_data = subset.pivot(index="Hz", columns="s", values="dB")
+    
+        sns.heatmap(pivot_data, ax=ax, cbar=False, vmin=-4, vmax=4, cmap=colormap)
+    
+        ax.set_title(str(level))
+    
+        # Invert y-axis
+        ax.invert_yaxis()
+    
+        # Get actual axis values
+        x_vals = pivot_data.columns.values.astype(float)
+        y_vals = pivot_data.index.values.astype(float)
+    
+        # Map: real values -> matrix position
+        x_ticks = [i for i, val in enumerate(x_vals) if round(val % 0.5, 2) == 0]
+        x_ticklabels = [f"{x_vals[i]:.1f}" for i in x_ticks]
+    
+        y_ticks = [i for i, val in enumerate(y_vals) if val % 4 == 0]
+        y_ticklabels = [f"{y_vals[i]:.0f}" for i in y_ticks]
+    
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(x_ticklabels)
+    
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels(y_ticklabels)
 
-        sns.heatmap(
-            pivot_data, ax=axes_flat[i], cbar=False, vmin=-4, vmax=4, cmap=colormap
-        )
-
-        axes_flat[i].set_title(f"{level}", fontsize=32)
-        axes_flat[i].invert_yaxis()
-
-
-        # Plot lines at cue onset and at target onset
-        idx_onset_cue = np.abs(tf_times - (-1.7)).argmin()
-        idx_onset_target = np.abs(tf_times).argmin()
-        axes_flat[i].axvline(
-            x=idx_onset_cue, linewidth=1.5, linestyle="dashed", color="k"
-        )
-        axes_flat[i].axvline(
-            x=idx_onset_target, linewidth=1.5, linestyle="dashed", color="k"
-        )
-
-        # Highlight roi
-        idx_onset_roi_time = np.abs(tf_times - tf_timewin[0]).argmin()
-        idx_onset_roi_freq = np.abs(tf_freqs - tf_freqwin[0]).argmin()
-        idx_offset_roi_time = np.abs(tf_times - tf_timewin[1]).argmin()
-        idx_offset_roi_freq = np.abs(tf_freqs - tf_freqwin[1]).argmin()
-
-        # Get with and height
-        rect_width, rect_height = (
-            idx_offset_roi_time - idx_onset_roi_time,
-            idx_offset_roi_freq - idx_onset_roi_freq,
-        )
-
-        # Create a rectangle
-        rect = patches.Rectangle(
-            (idx_onset_roi_time, idx_onset_roi_freq),
-            rect_width,
-            rect_height,
-            fill=False,
-            edgecolor="black",
-            lw=2,
-        )
-
-        # Add the rectangle to the heatmap
-        axes_flat[i].add_patch(rect)
-
-        # x-ticks (keep your existing logic)
-        xticks = pivot_data.columns.values
-        show_xticks = [
-            j for j, x in enumerate(xticks) if np.isclose(x % 0.5, 0, atol=1e-6)
-        ]
-        axes_flat[i].set_xticks(show_xticks)
-        axes_flat[i].set_xticklabels(
-            [f"{xticks[j]:.1f}" for j in show_xticks], fontsize=36
-        )
-
-        # y-ticks (set AFTER heatmap)
-        ytick_positions = np.arange(len(pivot_data.index))
-        ytick_labels = [f"{freq:.0f}" for freq in pivot_data.index]
-        show_positions = [pos for pos, freq in enumerate(pivot_data.index) if freq % 4 == 0]
-        show_labels = [ytick_labels[pos] for pos in show_positions]
-        
+        # Y-axis: only show ticks and label on left column
         if i % 3 != 0:
-            axes_flat[i].set_ylabel("")
-            axes_flat[i].set_yticklabels([])
+            ax.tick_params(labelleft=False)
+            ax.set_ylabel("")  # Remove y-axis label
         else:
-            axes_flat[i].set_ylabel("Hz", fontsize=36)
-            axes_flat[i].set_yticks(show_positions)
-            axes_flat[i].set_yticklabels(show_labels, fontsize=36)
-            
-            # Force tick visibility
-            axes_flat[i].tick_params(axis='y', which='both', labelleft=True, labelcolor='black', length=10)
-            axes_flat[i].yaxis.set_visible(True)
-            for label in axes_flat[i].get_yticklabels():
-                label.set_visible(True)
-                label.set_color('black')
-
-        # Ensure ticks and labels show
-        axes_flat[i].tick_params(axis='y', which='both', labelleft=(i % 3 == 0))
-
+            ax.set_ylabel('Hz')
+        
+        # X-axis: only show ticks and label on bottom row
         if i < 9:
-            axes_flat[i].set_xlabel("")
-            axes_flat[i].set_xticklabels([])
+            ax.tick_params(labelbottom=False)
+            ax.set_xlabel("")  # Remove x-axis label
         else:
-            axes_flat[i].set_xlabel("s", fontsize=36)
+            ax.set_xlabel('s')
     
-
-    # Use the last heatmap's QuadMesh for the colorbar (or any, since vmin/vmax are fixed)
-    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-    cbar = fig.colorbar(axes_flat[0].collections[0], cax=cbar_ax)
-    cbar.ax.tick_params(labelsize=28)
-    cbar.set_label("dB", fontsize=32)
-
-
+        # Draw vertical dashed lines at x = 0 and x = -1.6
+        for xpos in [0, -1.6]:
+            if xpos in x_vals:
+                xpos_index = np.where(x_vals == xpos)[0][0] + 0.5  # Center of the column
+                ax.axvline(x=xpos_index, color='black', linestyle='--', linewidth=1)
+                
+        # Map time (x) and frequency (y) ranges to matrix indices
+        # Find the closest matching column index for tf_timewin
+        x_start = np.argmin(np.abs(x_vals - tf_timewin[0]))
+        x_end = np.argmin(np.abs(x_vals - tf_timewin[1]))
+        
+        # Same for frequency (y-axis is row index)
+        y_start = np.argmin(np.abs(y_vals - tf_freqwin[0]))
+        y_end = np.argmin(np.abs(y_vals - tf_freqwin[1]))
+        
+        # Rectangle parameters (in heatmap matrix coordinates)
+        x_pos = min(x_start, x_end)
+        y_pos = min(y_start, y_end)
+        width = abs(x_end - x_start) + 1
+        height = abs(y_end - y_start) + 1
+        
+        # Add the rectangle
+        rect = Rectangle(
+            (x_pos, y_pos),  # (x, y)
+            width,
+            height,
+            linewidth=1.5,
+            edgecolor='black',
+            facecolor='none',
+            linestyle='-'
+        )
+        ax.add_patch(rect)
+        
+        # Set subplot title font size (slightly larger than default)
+        ax.set_title(str(level), fontsize=16)  # or your preferred size
+        
+        # Increase axis label font size (x and y labels)
+        ax.xaxis.label.set_size(16)
+        ax.yaxis.label.set_size(16)
     
-    # Main title
-    fig.suptitle(
-        f"ERSP at {' '.join(channel_selection)}",
-        fontsize=40,
-        y=1.02
-    )
+        # Increase tick label font size (x and y ticks)
+        ax.tick_params(axis='both', labelsize=16)
+                
+    # Shrink the main grid to make room on the right
+    fig.subplots_adjust(right=0.85)  # Leave space for colorbar
+    
+    # Add a new axis for the colorbar
+    cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    norm = plt.Normalize(vmin=-4, vmax=4)
+    sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, cax=cbar_ax, label='dB')
+                                
+    # Remove unused axes
+    for j in range(len(factor_levels), len(axes)):
+        fig.delaxes(axes[j])
+    
+    plt.tight_layout(rect=[0, 0, 0.85, 0.96])  # Leave space for colorbar and title
     
     # Save
     fn = os.path.join(path_out, tf_label + "_ersp.png")
     fig.savefig(fn, dpi=300, bbox_inches='tight')
-    
 
     return None
 
