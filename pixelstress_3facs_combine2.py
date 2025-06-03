@@ -194,7 +194,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
 
 
 # Function for parameterizing and plotting a frequency band ======================================================================
-def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
+def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection, vminmax):
 
     # Get idx
     tf_times = df_data["tfrs"][0].times
@@ -202,6 +202,93 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
 
     tf_time_idx = (tf_times >= tf_timewin[0]) & (tf_times <= tf_timewin[1])
     tf_freq_idx = (tf_freqs >= tf_freqwin[0]) & (tf_freqs <= tf_freqwin[1])
+
+    # Build df for topo
+    topo_df = []
+    for row_idx, row in df_data.iterrows():
+        tmp = row["tfrs"].copy().data
+        tmp = tmp[:, :, tf_time_idx].mean(axis=2)
+        topovals = tmp[:, tf_freq_idx].mean(axis=1)  
+        topo_df.append(
+            {
+                "id": row["id"],
+                "group": row["group"],
+                "stage": row["stage"],
+                "feedback": row["feedback"],
+                "dB": topovals,
+            }
+        )
+
+    # Average topo df across ids
+    topo_df = (
+        pd.DataFrame(topo_df)
+        .groupby(["stage", "feedback", "group"])["dB"]
+        .mean()
+        .reset_index()
+    )
+
+    # Re-order topo df
+    new_order = [7, 9, 11, 1, 3, 5, 6, 8, 10, 0, 2, 4]
+    topo_df = topo_df.reindex(new_order).reset_index()
+
+    # Subplot grid for topos
+    nrows, ncols = 2, 6
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2 * ncols, 2 * nrows))
+
+    # Find indices of the channels to highlight
+    highlight_idx = [
+        info["ch_names"].index(ch) for ch in channel_selection if ch in info["ch_names"]
+    ]
+
+    # Create mask: True for highlighted channels, False otherwise
+    mask = np.zeros(len(info["ch_names"]), dtype=bool)
+    mask[highlight_idx] = True
+
+    # Set mask_params for color and size
+    mask_params = dict(marker="o", markersize=6, markerfacecolor="#ff00ff")
+
+    for i, ax in enumerate(axes.flat):
+        plot_data = topo_df["dB"][i]
+        condition_label = (
+            topo_df["group"][i]
+            + " "
+            + topo_df["feedback"][i]
+            + " "
+            + topo_df["stage"][i]
+        )
+        mne.viz.plot_topomap(
+            plot_data,
+            info,
+            axes=ax,
+            show=False,
+            contours=0,
+            cmap=colormap,
+            res=300,
+            size=5,
+            vlim=vminmax,
+            mask=mask,
+            mask_params=mask_params,
+        )
+        ax.set_title(condition_label)
+
+    # Make space for the colorbar
+    fig.subplots_adjust(right=0.85)
+
+    # Create colorbar axis
+    cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
+
+    # Create a ScalarMappable for the colorbar
+    norm = Normalize(vmin=vminmax[0], vmax=vminmax[1])
+    sm = ScalarMappable(norm=norm, cmap=colormap)
+    sm.set_array([])
+
+    # Add colorbar with label
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label("dB", rotation=90, labelpad=10)
+
+    # Save
+    fn = os.path.join(path_out, tf_label + "_topos.png")
+    fig.savefig(fn, dpi=300, bbox_inches="tight")
 
     # Iterate df
     new_df = []
@@ -326,7 +413,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         subset = new_df[new_df["combined"] == level]
         pivot_data = subset.pivot(index="Hz", columns="s", values="dB")
     
-        sns.heatmap(pivot_data, ax=ax, cbar=False, vmin=-4, vmax=4, cmap=colormap)
+        sns.heatmap(pivot_data, ax=ax, cbar=False, vmin=vminmax[0], vmax=vminmax[1], cmap=colormap)
     
         ax.set_title(str(level))
     
@@ -412,7 +499,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     
     # Add a new axis for the colorbar
     cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
-    norm = plt.Normalize(vmin=-4, vmax=4)
+    norm = plt.Normalize(vmin=vminmax[0], vmax=vminmax[1])
     sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
     sm.set_array([])
     fig.colorbar(sm, cax=cbar_ax, label='dB')
@@ -531,37 +618,52 @@ g.savefig(fn, dpi=300)
 
 # Plot ERP ======================================================================================================================
 
-# get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
-# get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
+get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
 
 # Plot ERSP ======================================================================================================================
 
 get_freqband(
-    tf_label="frontal_theta_target_FCz",
+    tf_label="midfrontal_theta_target_FCz_cross",
     tf_timewin=(0.1, 0.4),
     tf_freqwin=(4, 7),
-    channel_selection=["FCz"],
+    channel_selection=["FCz", "Cz", "Fz", "FC1", "FC2"],
+    vminmax=(-3, 3),
 )
 
-# get_freqband(
-#     tf_label="frontal_theta_target_Fz",
-#     tf_timewin=(0.1, 0.4),
-#     tf_freqwin=(4, 7),
-#     channel_selection=["Fz", "FCz", "FC1", "FC2", "F1", "F2"],
-# )
+get_freqband(
+    tf_label="midfrontal_theta_target_Fz",
+    tf_timewin=(0.1, 0.4),
+    tf_freqwin=(4, 7),
+    channel_selection=["Fz"],
+    vminmax=(-3, 3),
+)
+
+get_freqband(
+    tf_label="midfrontal_theta_target_Cz",
+    tf_timewin=(0.1, 0.4),
+    tf_freqwin=(4, 7),
+    channel_selection=["Cz"],
+    vminmax=(-3, 3),
+)
+
+
+
 
 # get_freqband(
-#     tf_label="alpha_cti",
+#     tf_label="posterior_alpha_cti",
 #     tf_timewin=(-1.2, -0),
 #     tf_freqwin=(8, 14),
-#     channel_selection=["POz"],
+#     channel_selection=["PO7", "PO8", "O1", "O2"],
+#     vminmax=(-5, 5),
 # )
 
 # get_freqband(
-#     tf_label="central_beta_cti",
-#     tf_timewin=(-1.2, -0.3),
-#     tf_freqwin=(16, 20),
-#     channel_selection=["C3", "C4", "C1", "C2", "CP3", "CP4"],
+#     tf_label="midfrontal_beta_cti",
+#     tf_timewin=(-0.5, -0),
+#     tf_freqwin=(16, 30),
+#     channel_selection=["FCz", "Cz", "Fz", "FC1", "FC2"],
+#     vminmax=(-3, 3),
 # )
 
 # Save to csv

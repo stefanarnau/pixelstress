@@ -1,0 +1,277 @@
+---
+title: "Mixed ANOVA Analysis"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.width = 10, fig.height = 6)
+
+# Load required packages
+library(tidyverse)
+library(ez)
+library(emmeans)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(patchwork)
+
+# Set theme for plots
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+```{r load-data}
+# Set path
+path_in <- "/mnt/data_dump/pixelstress/4_results"
+
+# Read CSV file
+df <- read.csv(file.path(path_in, "stats_table.csv"))
+
+# Check if df exists and is a data frame
+if (!exists("df") || !is.data.frame(df)) {
+  stop("Please load your dataframe and name it 'df' before running this script.
+       Example: df <- read.csv('your_data.csv')")
+}
+
+# Check if required columns exist
+required_cols <- c("id", "group", "feedback", "stage", "rt", "accuracy", "cnv_Fz", "cnv_Cz")
+missing_cols <- setdiff(required_cols, names(df))
+if (length(missing_cols) > 0) {
+  stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
+}
+
+# Ensure factors are properly coded
+df$id <- as.factor(df$id)
+df$group <- as.factor(df$group)
+df$feedback <- as.factor(df$feedback)
+df$stage <- as.factor(df$stage)
+
+# Display data structure
+str(df)
+head(df)
+
+# Display factor levels
+cat("Factor levels:
+")
+cat("Group levels:", levels(df$group), "
+")
+cat("Feedback levels:", levels(df$feedback), "
+")
+cat("Stage levels:", levels(df$stage), "
+")
+cat("Number of subjects:", length(unique(df$id)), "
+")
+```
+
+## Data Visualization
+
+```{r create-lineplots}
+# List of dependent variables
+dvs <- c("rt", "accuracy", "cnv_Fz", "cnv_Cz")
+
+# Function to create line plots
+create_lineplot <- function(dv) {
+  plot_data <- df %>%
+    group_by(group, stage, feedback) %>%
+    summarise(
+      mean_val = mean(!!sym(dv), na.rm = TRUE),
+      sd_val = sd(!!sym(dv), na.rm = TRUE),
+      n = n(),
+      se_val = sd_val / sqrt(n),
+      .groups = 'drop'
+    )
+
+  p <- ggplot(plot_data, aes(x = feedback, y = mean_val, color = group, linetype = stage)) +
+    geom_line(aes(group = interaction(group, stage)), size = 1) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = mean_val - sd_val, ymax = mean_val + sd_val), 
+                  width = 0.1, size = 0.5) +
+    labs(title = paste("Line Plot for", toupper(dv)),
+         x = "Feedback",
+         y = paste("Mean", dv, "± SD"),
+         color = "Group",
+         linetype = "Stage") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          legend.position = "bottom")
+
+  return(p)
+}
+
+# Create plots
+plots <- map(dvs, create_lineplot)
+names(plots) <- dvs
+
+# Display plots
+walk2(plots, names(plots), ~{
+  print(.x)
+  cat("\n\n")
+})
+```
+
+```{r combined-plot, fig.height=12, fig.width=15}
+combined_plot <- wrap_plots(plots, ncol = 2)
+print(combined_plot)
+```
+
+## Mixed ANOVA Analysis
+
+```{r anova-functions}
+run_mixed_anova <- function(dv) {
+  cat(rep("=", 60), "\n")
+  cat("MIXED ANOVA RESULTS FOR:", toupper(dv), "\n")
+  cat(rep("=", 60), "\n")
+
+  result <- tryCatch({
+    anova_result <- ezANOVA(
+      data = df,
+      dv = dv,
+      wid = "id",
+      between = "group",
+      within = c("stage", "feedback"),
+      type = 3,
+      detailed = TRUE,
+      return_aov = TRUE
+    )
+
+    print(anova_result$ANOVA)
+
+    if (!is.null(anova_result$`Mauchly's Test for Sphericity`)) {
+      cat("\nMauchly's Test for Sphericity:\n")
+      print(anova_result$`Mauchly's Test for Sphericity`)
+
+      if (!is.null(anova_result$`Sphericity Corrections`)) {
+        cat("\nSphericity Corrections:\n")
+        print(anova_result$`Sphericity Corrections`)
+      }
+    }
+
+    return(anova_result)
+  }, error = function(e) {
+    cat("ANOVA failed for", dv, ":", conditionMessage(e), "\n")
+    return(NULL)
+  })
+
+  return(result)
+}
+```
+
+```{r run-anovas}
+anova_results <- map(dvs, run_mixed_anova)
+names(anova_results) <- dvs
+```
+
+## Post-hoc Tests
+
+```{r posthoc-feedback}
+run_feedback_posthoc <- function(dv, anova_result) {
+  cat("\n" , rep("=", 50), "\n")
+  cat("POST-HOC TESTS FOR FEEDBACK -", toupper(dv), "\n")
+  cat(rep("=", 50), "\n")
+
+  feedback_p <- anova_result$ANOVA$p[anova_result$ANOVA$Effect == "feedback"]
+
+  if (length(feedback_p) > 0 && feedback_p < 0.05) {
+    cat("Feedback main effect is significant (p =", round(feedback_p, 4), ")\n")
+    cat("Running pairwise comparisons...\n\n")
+
+    model <- aov(as.formula(paste(dv, "~ group * stage * feedback + Error(id/(stage*feedback))")), 
+                 data = df)
+
+    emm <- emmeans(model, ~ feedback)
+    pairs <- pairs(emm, adjust = "bonferroni")
+
+    print(emm)
+    cat("\nPairwise comparisons:\n")
+    print(pairs)
+
+  } else {
+    cat("Feedback main effect is not significant (p =", 
+        ifelse(length(feedback_p) > 0, round(feedback_p, 4), "NA"), ")\n")
+    cat("Skipping post-hoc tests.\n")
+  }
+}
+
+iwalk(anova_results[!sapply(anova_results, is.null)], run_feedback_posthoc)
+```
+
+## Hierarchical Follow-up
+
+```{r hierarchical-followup}
+run_hierarchical_followup <- function(dv, anova_result) {
+  cat("\n", rep("=", 60), "\n")
+  cat("HIERARCHICAL FOLLOW-UP TESTS FOR:", toupper(dv), "\n")
+  cat(rep("=", 60), "\n")
+
+  anova_table <- anova_result$ANOVA
+
+  three_way_p <- anova_table$p[anova_table$Effect == "group:stage:feedback"]
+
+  if (length(three_way_p) > 0 && three_way_p < 0.05) {
+    cat("3-way interaction is significant (p =", round(three_way_p, 4), ")\n")
+    cat("Running follow-up ANOVAs for each GROUP level...\n\n")
+
+    for (grp in levels(df$group)) {
+      cat("--- GROUP:", grp, "---\n")
+      subset_data <- df[df$group == grp, ]
+
+      follow_up <- ezANOVA(
+        data = subset_data,
+        dv = dv,
+        wid = "id",
+        within = c("stage", "feedback"),
+        type = 3,
+        detailed = TRUE
+      )
+
+      print(follow_up$ANOVA)
+
+      stage_feedback_p <- follow_up$ANOVA$p[follow_up$ANOVA$Effect == "stage:feedback"]
+
+      if (length(stage_feedback_p) > 0 && stage_feedback_p < 0.05) {
+        for (stg in levels(df$stage)) {
+          cat("--- GROUP:", grp, ", STAGE:", stg, "---\n")
+          subset_data2 <- subset_data[subset_data$stage == stg, ]
+
+          follow_up2 <- ezANOVA(
+            data = subset_data2,
+            dv = dv,
+            wid = "id",
+            within = "feedback",
+            type = 3,
+            detailed = TRUE
+          )
+
+          print(follow_up2$ANOVA)
+        }
+      }
+    }
+  }
+}
+
+iwalk(anova_results[!sapply(anova_results, is.null)], run_hierarchical_followup)
+```
+
+## Summary
+
+```{r summary}
+cat("Analysis completed for all dependent variables:\n")
+cat("- Line plots created showing means ± SD for all factor combinations\n")
+cat("- Mixed ANOVAs performed for each DV\n")
+cat("- Post-hoc tests for feedback factor (when significant)\n")
+cat("- Hierarchical follow-up ANOVAs for significant interactions\n")
+cat("\nRefer to the sections above for detailed results.")
+```
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```

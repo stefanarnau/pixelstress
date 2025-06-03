@@ -55,17 +55,19 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Subplot grid for topos
     nrows, ncols = 2, 6
     fig, axes = plt.subplots(nrows, ncols, figsize=(2 * ncols, 2 * nrows))
-    
+
     # Find indices of the channels to highlight
-    highlight_idx = [info['ch_names'].index(ch) for ch in ['Cz', 'Fz'] if ch in info['ch_names']]
-    
+    highlight_idx = [
+        info["ch_names"].index(ch) for ch in ["Cz", "Fz"] if ch in info["ch_names"]
+    ]
+
     # Create mask: True for highlighted channels, False otherwise
-    mask = np.zeros(len(info['ch_names']), dtype=bool)
+    mask = np.zeros(len(info["ch_names"]), dtype=bool)
     mask[highlight_idx] = True
-    
+
     # Set mask_params for color and size
-    mask_params = dict(marker='o', markersize=6, markerfacecolor='#ff00ff')
-        
+    mask_params = dict(marker="o", markersize=6, markerfacecolor="#ff00ff")
+
     for i, ax in enumerate(axes.flat):
         plot_data = topo_df["μV"][i]
         condition_label = (
@@ -86,28 +88,28 @@ def get_erp(erp_label, erp_timewin, channel_selection):
             size=5,
             vlim=(-3.5, 3.5),
             mask=mask,
-            mask_params=mask_params
+            mask_params=mask_params,
         )
         ax.set_title(condition_label)
-    
+
     # Make space for the colorbar
     fig.subplots_adjust(right=0.85)
-    
+
     # Create colorbar axis
     cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
-    
+
     # Create a ScalarMappable for the colorbar
     norm = Normalize(vmin=-3.5, vmax=3.5)
     sm = ScalarMappable(norm=norm, cmap=colormap)
     sm.set_array([])
-    
+
     # Add colorbar with label
     cbar = fig.colorbar(sm, cax=cbar_ax)
-    cbar.set_label('μV', rotation=90, labelpad=10)
-    
+    cbar.set_label("μV", rotation=90, labelpad=10)
+
     # Save
     fn = os.path.join(path_out, erp_label + "_topos.png")
-    fig.savefig(fn, dpi=300, bbox_inches='tight')
+    fig.savefig(fn, dpi=300, bbox_inches="tight")
 
     # Iterate df and create long df including time points as rows
     new_df = []
@@ -140,7 +142,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
         .mean()
         .reset_index()
     )
-    
+
     # Set seaborn params
     sns.set(font_scale=1.2)
     sns.set_style("whitegrid")
@@ -162,10 +164,9 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     for ax in g.axes.flat:
         ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
         ax.invert_yaxis()
-        
+
     # Main title
-    g.fig.suptitle("ERP at " + ' '.join(channel_selection), y=1.05,
-    fontsize=16)
+    g.fig.suptitle("ERP at " + " ".join(channel_selection), y=1.05, fontsize=16)
 
     # Save
     fn = os.path.join(path_out, erp_label + "_erp.png")
@@ -247,7 +248,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         .mean()
         .reset_index()
     )
-    
+
     # Set seaborn params
     sns.set(font_scale=1.2)
     sns.set_style("whitegrid")
@@ -271,9 +272,14 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         ax.invert_yaxis()
 
     # Main title
-    g.fig.suptitle('-'.join([str(x) for x in tf_freqwin]) + ' Hz power at ' + ' '.join(channel_selection), y=1.05,
-    fontsize=16)
-    
+    g.fig.suptitle(
+        "-".join([str(x) for x in tf_freqwin])
+        + " Hz power at "
+        + " ".join(channel_selection),
+        y=1.05,
+        fontsize=16,
+    )
+
     # Save
     fn = os.path.join(path_out, tf_label + "_lineplot.png")
     g.savefig(fn, dpi=300)
@@ -315,7 +321,7 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
 
     # Create a 3x4 grid of subplots
     fig, axes = plt.subplots(4, 3, figsize=(40, 30), dpi=300, sharex=True, sharey=True)
-    
+
     plt.subplots_adjust(
         left=0.25,
         right=0.89,
@@ -340,7 +346,6 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
 
         axes_flat[i].set_title(f"{level}", fontsize=32)
         axes_flat[i].invert_yaxis()
-
 
         # Plot lines at cue onset and at target onset
         idx_onset_cue = np.abs(tf_times - (-1.7)).argmin()
@@ -390,9 +395,11 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
         # y-ticks (set AFTER heatmap)
         ytick_positions = np.arange(len(pivot_data.index))
         ytick_labels = [f"{freq:.0f}" for freq in pivot_data.index]
-        show_positions = [pos for pos, freq in enumerate(pivot_data.index) if freq % 4 == 0]
+        show_positions = [
+            pos for pos, freq in enumerate(pivot_data.index) if freq % 4 == 0
+        ]
         show_labels = [ytick_labels[pos] for pos in show_positions]
-        
+
         if i % 3 != 0:
             axes_flat[i].set_ylabel("")
             axes_flat[i].set_yticklabels([])
@@ -400,23 +407,24 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
             axes_flat[i].set_ylabel("Hz", fontsize=36)
             axes_flat[i].set_yticks(show_positions)
             axes_flat[i].set_yticklabels(show_labels, fontsize=36)
-            
+
             # Force tick visibility
-            axes_flat[i].tick_params(axis='y', which='both', labelleft=True, labelcolor='black', length=10)
+            axes_flat[i].tick_params(
+                axis="y", which="both", labelleft=True, labelcolor="black", length=10
+            )
             axes_flat[i].yaxis.set_visible(True)
             for label in axes_flat[i].get_yticklabels():
                 label.set_visible(True)
-                label.set_color('black')
+                label.set_color("black")
 
         # Ensure ticks and labels show
-        axes_flat[i].tick_params(axis='y', which='both', labelleft=(i % 3 == 0))
+        axes_flat[i].tick_params(axis="y", which="both", labelleft=(i % 3 == 0))
 
         if i < 9:
             axes_flat[i].set_xlabel("")
             axes_flat[i].set_xticklabels([])
         else:
             axes_flat[i].set_xlabel("s", fontsize=36)
-    
 
     # Use the last heatmap's QuadMesh for the colorbar (or any, since vmin/vmax are fixed)
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
@@ -424,19 +432,12 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection):
     cbar.ax.tick_params(labelsize=28)
     cbar.set_label("dB", fontsize=32)
 
-
-    
     # Main title
-    fig.suptitle(
-        f"ERSP at {' '.join(channel_selection)}",
-        fontsize=40,
-        y=1.02
-    )
-    
+    fig.suptitle(f"ERSP at {' '.join(channel_selection)}", fontsize=40, y=1.02)
+
     # Save
     fn = os.path.join(path_out, tf_label + "_ersp.png")
-    fig.savefig(fn, dpi=300, bbox_inches='tight')
-    
+    fig.savefig(fn, dpi=300, bbox_inches="tight")
 
     return None
 
