@@ -624,7 +624,7 @@ get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
 # Plot ERSP ======================================================================================================================
 
 get_freqband(
-    tf_label="midfrontal_theta_target_FCz_cross",
+    tf_label="mft_target_cross",
     tf_timewin=(0.1, 0.4),
     tf_freqwin=(4, 7),
     channel_selection=["FCz", "Cz", "Fz", "FC1", "FC2"],
@@ -632,42 +632,13 @@ get_freqband(
 )
 
 get_freqband(
-    tf_label="midfrontal_theta_target_Fz",
-    tf_timewin=(0.1, 0.4),
-    tf_freqwin=(4, 7),
-    channel_selection=["Fz"],
-    vminmax=(-3, 3),
+    tf_label="posterior_alpha_cti",
+    tf_timewin=(-1, -0.2),
+    tf_freqwin=(8, 14),
+    channel_selection=["PO7", "PO8", "O1", "O2"],
+    vminmax=(-5, 5),
 )
-
-get_freqband(
-    tf_label="midfrontal_theta_target_Cz",
-    tf_timewin=(0.1, 0.4),
-    tf_freqwin=(4, 7),
-    channel_selection=["Cz"],
-    vminmax=(-3, 3),
-)
-
-
-
-
-# get_freqband(
-#     tf_label="posterior_alpha_cti",
-#     tf_timewin=(-1.2, -0),
-#     tf_freqwin=(8, 14),
-#     channel_selection=["PO7", "PO8", "O1", "O2"],
-#     vminmax=(-5, 5),
-# )
-
-# get_freqband(
-#     tf_label="midfrontal_beta_cti",
-#     tf_timewin=(-0.5, -0),
-#     tf_freqwin=(16, 30),
-#     channel_selection=["FCz", "Cz", "Fz", "FC1", "FC2"],
-#     vminmax=(-3, 3),
-# )
 
 # Save to csv
 fn = os.path.join(path_out, "stats_table.csv")
 df.to_csv(fn, index=False)
-
-aa = bb

@@ -1,0 +1,93 @@
+---
+title: "Mixed ANOVA Report"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ez)
+library(emmeans)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+
+# Load data
+path_in <- "/mnt/data_dump/pixelstress/4_results"
+df <- read.csv(file.path(path_in, "stats_table.csv"))
+
+# Ensure factors are correctly set
+df$group <- factor(df$group)
+df$feedback <- factor(df$feedback)
+df$stage <- factor(df$stage)
+df$id <- factor(df$id)
+
+# DVs
+dvs <- c("rt", "accuracy", "cnv_Fz", "cnv_Cz", "mft_target_cross", "posterior_alpha_cti")
+
+```
+
+```{r descriptives, results='asis', echo=FALSE}
+for (dv in dvs) {
+  cat("###", dv, "\n\n")
+  summary_table <- df %>%
+    group_by(group, stage, feedback) %>%
+    summarise(
+      mean = mean(.data[[dv]], na.rm = TRUE),
+      sd = sd(.data[[dv]], na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  print(
+    kable(summary_table, digits = 2,  caption = paste("Descriptive Statistics for", gsub("_", "\\\\_", dv)))  %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      latex_options = "hold_position",
+      full_width = FALSE
+    )
+  )
+  
+  df_temp <- df %>% rename(DV = all_of(dv))
+  anova_results <- ezANOVA(
+    data = df_temp,
+    dv = DV,
+    wid = id,
+    between = group,
+    within = .(stage, feedback),
+    detailed = TRUE,
+    type = 3
+  )
+  
+  # Add partial eta squared to the table
+  aov_table <- anova_results$ANOVA %>%
+    mutate(
+      Effect = as.character(Effect),
+      p_value = if ("p.GG" %in% names(.)) ifelse(!is.na(p.GG), p.GG, p) else p,
+      partial_eta2 = SSn / (SSn + SSd),
+      F = formatC(F, format = "f", digits = 2),
+      p_value = formatC(p_value, format = "f", digits = 3),
+      ges = formatC(ges, format = "f", digits = 3),
+      partial_eta2 = formatC(partial_eta2, format = "f", digits = 3)
+    ) %>%
+    select(Effect, DFn, DFd, F, p_value, ges, partial_eta2)
+  
+  # Rename columns
+  colnames(aov_table) <- c("Effect", "DFn", "DFd", "F", "p (GG or raw)", "GES", "petasq")
+    
+
+  # Print the table
+  print(
+    kable(aov_table, caption = paste("ANOVA Table for", gsub("_", "\\\\_", dv))) %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      latex_options = "hold_position",
+      full_width = FALSE
+    )
+  )
+  
+  
+}
+
+```
