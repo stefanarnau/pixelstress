@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Paths
 path_in = "/home/plkn/repos/pixelstress/subjective_ratings/"
@@ -116,6 +117,47 @@ for dvcol in dvcols:
 # Save ratings to csv
 fn = os.path.join(path_out, "stats_table_ratings.csv")
 df.to_csv(fn, index=False)
+
+
+
+# Melt the dependent variables into long format
+df_long = df.melt(
+    id_vars=["id", "group", "stage", "feedback"],
+    value_vars=["effort", "arousal", "frustration", "mental demand", "performance", "stress", "temporal demand"],
+    var_name="dependent_variable",
+    value_name="value"
+)
+
+# =====================================
+
+# Create a new column for the 12 combinations of within- and between-subject factors
+df_long["combination"] = df_long["group"].astype(str) + "_" + df_long["stage"].astype(str) + "_" + df_long["feedback"].astype(str)
+
+# Aggregate (e.g., mean over subjects for each combination and dependent variable)
+summary = df_long.groupby(["combination", "dependent_variable"], as_index=False)["value"].mean()
+
+# Sort combination levels to ensure consistent x-axis order
+summary["combination"] = pd.Categorical(summary["combination"], categories=sorted(summary["combination"].unique()), ordered=True)
+
+# Plot
+plt.figure(figsize=(12, 6))
+sns.lineplot(
+    data=summary,
+    x="combination",
+    y="value",
+    hue="dependent_variable",
+    marker="o"
+)
+
+plt.xticks(rotation=45)
+plt.xlabel("Factor Combination")
+plt.ylabel("Dependent Variable Value")
+plt.title("Lineplot of Dependent Variables Across Factor Combinations")
+plt.tight_layout()
+plt.show()
+
+
+
 
 
 
