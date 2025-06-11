@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+import itertools
 
 # Paths
 path_in = "/home/plkn/repos/pixelstress/subjective_ratings/"
@@ -31,9 +32,6 @@ df_demo = df[['id', 'group', 'sex', 'age']]
 
 # Remove columns
 df = df.drop(['sex', 'age'], axis=1)
-
-# Remove id==96 because missing data
-df = df[df['id'] != 96]
 
 # Identify dv columns
 dvcols = [col for col in df.columns if col not in ['id', 'group']]
@@ -80,7 +78,7 @@ df = df.rename(columns={
 })
 
 # Rename values
-df['group'] = df['group'].replace({'1': 'exp', '2': 'ctrl'}) 
+df['group'] = df['group'].replace({1: 'exp', 2: 'ctrl'}) 
 df['stage'] = df['stage'].replace({'1': 'start', '2': 'end'}) 
 df['feedback'] = df['feedback'].replace({'Close': 'close', 'Above': 'above', 'Below': 'below'})
 
@@ -94,25 +92,6 @@ sns.set_style("whitegrid")
 
 # Identify dv columns
 dvcols = [col for col in df.columns if col not in ['id', 'group', 'stage', 'feedback']]
-
-# Iterate dvcols
-for dvcol in dvcols:
-        
-    g = sns.catplot(
-        data=df,
-        x="group",
-        y=dvcol,
-        hue="feedback",
-        kind="boxen",
-        col="stage",
-        k_depth=4,
-        palette=lineplot_palette,
-        col_order=["start", "end"],
-    )
-    
-    # Save
-    fn = os.path.join(path_out, dvcol + "_boxen.png")
-    g.savefig(fn, dpi=300)
     
 # Save ratings to csv
 fn = os.path.join(path_out, "stats_table_ratings.csv")
@@ -139,26 +118,71 @@ summary = df_long.groupby(["combination", "dependent_variable"], as_index=False)
 # Sort combination levels to ensure consistent x-axis order
 summary["combination"] = pd.Categorical(summary["combination"], categories=sorted(summary["combination"].unique()), ordered=True)
 
+
+# Define style combinations for: arousal, effort, frustration, mental demand, performance, stress, temporal demand
+colors = ['darkslategray', 'darkslategray', 'teal', 'teal', 'purple', 'purple', 'olive']
+markers = ['o', 'D', 'o', 'D', 'o', 'D', 'o']
+linestyles = ['-', ':', '-', ':', '-', ':', '-']
+
+# Map dependent_variable to styles
+unique_vars = summary['dependent_variable'].unique()
+style_dict = {
+    var: {
+        "color": colors[i % len(colors)],
+        "marker": markers[i % len(markers)],
+        "linestyle": linestyles[i % len(linestyles)]
+    } for i, var in enumerate(unique_vars)
+}
+
+# Set font sizes
+plt.rcParams.update({
+    'font.size': 18,           # Base font size
+    'axes.titlesize': 24,      # Title font
+    'axes.labelsize': 18,      # X and Y label font
+    'xtick.labelsize': 14,     # X tick labels
+    'ytick.labelsize': 14,     # Y tick labels
+    'legend.fontsize': 16,     # Legend font
+    'legend.title_fontsize': 16  # Legend title font
+})
+
 # Plot
-plt.figure(figsize=(12, 6))
-sns.lineplot(
-    data=summary,
-    x="combination",
-    y="value",
-    hue="dependent_variable",
-    marker="o"
-)
+fig = plt.figure(figsize=(18, 8))
+
+# Plot lines
+for var in unique_vars:
+    subset = summary[summary['dependent_variable'] == var]
+    style = style_dict[var]
+    plt.plot(
+        subset['combination'],
+        subset['value'],
+        label=var,
+        marker=style['marker'],
+        linestyle=style['linestyle'],
+        color=style['color'],
+        linewidth=2.5,        
+        markersize=8  
+    )
 
 plt.xticks(rotation=45)
 plt.xlabel("Factor Combination")
-plt.ylabel("Dependent Variable Value")
-plt.title("Lineplot of Dependent Variables Across Factor Combinations")
-plt.tight_layout()
-plt.show()
+plt.ylabel("Rating")
+plt.title("Subjective ratings across experimental conditions")
 
+# Adjust bottom margin
+plt.subplots_adjust(bottom=0.2)  
 
+# Move legend to bottom
+plt.legend(
+    title="Rating",
+    bbox_to_anchor=(0.5, -0.33),
+    loc="upper center",
+    frameon=False,
+    ncol=4
+)
 
-
+# Save
+fn = os.path.join(path_out, "ratings.png")
+fig.savefig(fn, dpi=300, bbox_inches='tight')
 
 
 
