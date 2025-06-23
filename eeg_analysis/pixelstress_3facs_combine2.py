@@ -13,6 +13,8 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 import statsmodels.formula.api as smf
 import itertools
+from PIL import Image
+from io import BytesIO
 
 # Some global settings
 colormap = "rainbow"
@@ -75,14 +77,14 @@ def get_erp(erp_label, erp_timewin, channel_selection):
             + " "
             + topo_df["stage"][i]
         )
-        mne.viz.plot_topomap(
+        plot_topo = mne.viz.plot_topomap(
             plot_data,
             info,
             axes=ax,
             show=False,
             contours=0,
             cmap=colormap,
-            res=300,
+            res=600,
             size=5,
             vlim=(-3.5, 3.5),
             mask=mask,
@@ -105,9 +107,11 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     cbar = fig.colorbar(sm, cax=cbar_ax)
     cbar.set_label('μV', rotation=90, labelpad=10)
     
+    plot_topo = fig
+    
     # Save
     fn = os.path.join(path_out, erp_label + "_topos.png")
-    fig.savefig(fn, dpi=300, bbox_inches='tight')
+    plot_topo.savefig(fn, dpi=300, bbox_inches='tight')
 
     # Iterate df and create long df including time points as rows
     new_df = []
@@ -145,52 +149,71 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     sns.set(font_scale=1.2)
     sns.set_style("whitegrid")
 
-    # plot erp
-    g = sns.relplot(
-        data=new_df,
-        x="s",
-        y="μV",
-        hue="feedback",
-        style="group",
-        col="stage",
-        kind="line",
-        palette=lineplot_palette,
-        col_order=["start", "end"],
-    )
-
-    # Highlight x-axis range
-    for ax in g.axes.flat:
-        ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
-        ax.invert_yaxis()
-        
-    # Main title
-    g.fig.suptitle("ERP at " + ' '.join(channel_selection), y=1.05,
-    fontsize=16)
-
-    # Save
-    fn = os.path.join(path_out, erp_label + "_erp.png")
-    g.savefig(fn, dpi=300)
 
     # Plot parameters
     df_plot = df.copy()
     df_plot = df_plot.rename(columns={erp_label: "μV"})
-    g = sns.catplot(
-        data=df_plot,
-        x="group",
-        y="μV",
-        hue="feedback",
-        kind="boxen",
-        col="stage",
-        k_depth=4,
-        palette=lineplot_palette,
-        col_order=["start", "end"],
-    )
 
-    # Save
-    fn = os.path.join(path_out, erp_label + "_boxen.png")
-    g.savefig(fn, dpi=300)
+    
+    stages = ["start", "end"]
+    palette = lineplot_palette
 
-    return df
+
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(14, 10), constrained_layout=False)
+    
+    # Line plot (top row, 2 columns)
+    for i, stage in enumerate(stages):
+        ax = axes[0, i]
+        sns.lineplot(
+            data=new_df[new_df['stage'] == stage],
+            x="s",
+            y="μV",
+            hue="feedback",
+            style="group",
+            palette=palette,
+            ax=ax,
+        )
+        ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
+        ax.invert_yaxis()
+        ax.set_title(stage)
+    
+    axes[0, 0].legend(loc='best')
+    axes[0, 1].get_legend().remove()
+    
+    # Boxen plot (bottom row, 2 columns)
+    for i, stage in enumerate(stages):
+        ax = axes[1, i]
+        sns.boxenplot(
+            data=df_plot[df_plot['stage'] == stage],
+            x="group",
+            y="μV",
+            hue="feedback",
+            palette=palette,
+            k_depth=4,
+            ax=ax,
+        )
+        ax.set_title(stage)
+    
+    axes[1, 0].legend(loc='best')
+    axes[1, 1].get_legend().remove()
+    
+    # Adjust spacing between subplots
+    fig.subplots_adjust(hspace=0.4, wspace=0.2)
+    
+    # Add row titles
+    fig.text(0.5, 0.95, "ERP at " + " ".join(channel_selection), ha='center', va='center', fontsize=14, weight='bold')
+    fig.text(0.5, 0.47, "Mean Amplitude", ha='center', va='center', fontsize=14, weight='bold')
+    
+    # Save combined figure
+    fn = os.path.join(path_out, erp_label + "_combined.png")
+    fig.savefig(fn, dpi=600)
+    plt.show()
+
+
+
+    
+
+    return df, plot_topo, erp_plot, param_plot
 
 
 # Function for parameterizing and plotting a frequency band ======================================================================
@@ -334,55 +357,77 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection, vminmax):
         .mean()
         .reset_index()
     )
-    
-    # Set seaborn params
+        
+    # Set seaborn style
     sns.set(font_scale=1.2)
     sns.set_style("whitegrid")
-
-    # plot freqband
-    g = sns.relplot(
-        data=freq_df,
-        x="s",
-        y="dB",
-        hue="feedback",
-        style="group",
-        col="stage",
-        kind="line",
-        palette=lineplot_palette,
-        col_order=["start", "end"],
-    )
-
-    # Highlight x-axis range
-    for ax in g.axes.flat:
-        ax.axvspan(tf_timewin[0], tf_timewin[1], color="silver", alpha=0.5)
-        ax.invert_yaxis()
-
-    # Main title
-    g.fig.suptitle('-'.join([str(x) for x in tf_freqwin]) + ' Hz power at ' + ' '.join(channel_selection), y=1.05,
-    fontsize=16)
     
-    # Save
-    fn = os.path.join(path_out, tf_label + "_lineplot.png")
-    g.savefig(fn, dpi=300)
-
-    # Plot parameters
+    # Setup
+    stages = ["start", "end"]
+    palette = lineplot_palette
+    
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(16, 10), constrained_layout=False)
+    
+    # Top row: line plots
+    for i, stage in enumerate(stages):
+        ax = axes[0, i]
+        sns.lineplot(
+            data=freq_df[freq_df['stage'] == stage],
+            x="s",
+            y="dB",
+            hue="feedback",
+            style="group",
+            palette=palette,
+            ax=ax,
+        )
+        ax.axvspan(tf_timewin[0], tf_timewin[1], color="silver", alpha=0.5)
+        ax.set_title(stage)
+    
+    axes[0, 0].legend(loc='best')
+    axes[0, 1].get_legend().remove()
+    
+    # Bottom row: boxen plots
     df_plot = df.copy()
     df_plot = df_plot.rename(columns={tf_label: "dB"})
-    g = sns.catplot(
-        data=df_plot,
-        x="group",
-        y="dB",
-        hue="feedback",
-        kind="boxen",
-        col="stage",
-        k_depth=4,
-        palette=lineplot_palette,
-        col_order=["start", "end"],
+    
+    for i, stage in enumerate(stages):
+        ax = axes[1, i]
+        sns.boxenplot(
+            data=df_plot[df_plot['stage'] == stage],
+            x="group",
+            y="dB",
+            hue="feedback",
+            palette=palette,
+            k_depth=4,
+            ax=ax,
+        )
+        ax.set_title(stage)
+        # Remove individual legends
+        ax.legend_.remove()
+    
+    # Shared legend (bottom center)
+    handles, labels = axes[1, 0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc='lower center',
+        bbox_to_anchor=(0.5, -0.02),
+        ncol=3,
+        frameon=False,
+        fontsize=12,
     )
-
+    
+    # Add row titles
+    fig.text(0.5, 0.95, f"{'-'.join(map(str, tf_freqwin))} Hz power at {' '.join(channel_selection)}", ha='center', va='center', fontsize=14, weight='bold')
+    fig.text(0.5, 0.47, "Mean Power", ha='center', va='center', fontsize=14, weight='bold')
+    
+    # Adjust layout
+    fig.subplots_adjust(hspace=0.4, wspace=0.2, bottom=0.08)
+    
     # Save
-    fn = os.path.join(path_out, tf_label + "_boxen.png")
-    g.savefig(fn, dpi=300)
+    fn = os.path.join(path_out, tf_label + "_combined.png")
+    fig.savefig(fn, dpi=600, bbox_inches='tight')
+    plt.show()
 
     # Get the unique levels of your factor
     factor_levels = [
@@ -400,9 +445,6 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection, vminmax):
         "ctrl below end",
     ]
 
-
-
-    
     fig, axes = plt.subplots(4, 3, figsize=(15, 12), sharex=True, sharey=True)
     fig.suptitle(f"ERSP at {' '.join(channel_selection)}", fontsize=24)
     
@@ -549,6 +591,9 @@ df_data = pd.concat(data_in).reset_index()
 # Rename trajectory column
 df_data = df_data.rename(columns={"trajectory": "feedback"})
 
+# Rename rt column
+df_data = df_data.rename(columns={"rt": "ms"})
+
 # Rename groups
 df_data["group"].replace({"experimental": "exp", "control": "ctrl"}, inplace=True)
 
@@ -584,42 +629,74 @@ df_data = df_data[~df_data["id"].isin(ids_to_drop)].reset_index()
 sns.set(font_scale=1.2)
 sns.set_style("whitegrid")
 
-g = sns.catplot(
-    data=df,
-    x="group",
-    y="rt",
-    hue="feedback",
-    kind="boxen",
-    col="stage",
-    k_depth=4,
-    palette=lineplot_palette,
-    col_order=["start", "end"],
+# Create figure with 2 rows and 2 columns
+fig, axes = plt.subplots(2, 2, figsize=(14, 11), sharex=True)
+
+# Flatten axes for easy indexing
+axes = axes.flatten()
+
+# Define order
+col_order = ["start", "end"]
+
+# Plot for response times (row 1)
+for i, stage in enumerate(col_order):
+    sns.boxenplot(
+        data=df[df["stage"] == stage],
+        x="group",
+        y="ms",
+        hue="feedback",
+        ax=axes[i],
+        palette=lineplot_palette,
+        k_depth=4
+    )
+    axes[i].set_title(f"{stage.capitalize()}")
+    axes[i].legend_.remove()
+    axes[i].tick_params(labelbottom=True) 
+
+# Plot for accuracy (row 2)
+for i, stage in enumerate(col_order):
+    sns.boxenplot(
+        data=df[df["stage"] == stage],
+        x="group",
+        y="accuracy",
+        hue="feedback",
+        ax=axes[i + 2],
+        palette=lineplot_palette,
+        k_depth=4
+    )
+    axes[i + 2].set_title(f"{stage.capitalize()}")
+    axes[i + 2].legend_.remove()
+
+# Create a single shared legend
+handles, labels = axes[0].get_legend_handles_labels()
+fig.legend(
+    handles,
+    labels,
+    title="Feedback",
+    loc="lower center",
+    bbox_to_anchor=(0.5, -0.05),  # Below the figure
+    ncol=3,
+    frameon=False
 )
 
-# Save
-fn = os.path.join(path_out, "rt_boxen.png")
-g.savefig(fn, dpi=300)
+# Add row-specific titles
+fig.text(0.5, 0.93, "Response Times", ha='center', va='center', fontsize=16, fontweight='bold')
+fig.text(0.5, 0.49, "Accuracy", ha='center', va='center', fontsize=16, fontweight='bold')
 
-g = sns.catplot(
-    data=df,
-    x="group",
-    y="accuracy",
-    hue="feedback",
-    kind="boxen",
-    col="stage",
-    k_depth=4,
-    palette=lineplot_palette,
-    col_order=["start", "end"],
-)
+# Adjust spacing
+plt.subplots_adjust(hspace=0.32, top=0.88, bottom=0.06)  # Bottom space for legend
 
-# Save
-fn = os.path.join(path_out, "acc_boxen.png")
-g.savefig(fn, dpi=300)
+# Save the combined figure
+fn = os.path.join(path_out, "rt_and_acc_boxen.png")
+fig.savefig(fn, dpi=600, bbox_inches="tight")
+
 
 # Plot ERP ======================================================================================================================
 
-get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
-get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+#df, plot_topo_Fz, erp_plot_Fz, param_plot_Fz = get_erp(erp_label="cnv_Fz", erp_timewin=(-0.3, 0), channel_selection=["Fz"])
+#df, plot_topo_FCz, erp_plot_FCz, param_plot_FCz = get_erp(erp_label="cnv_Cz", erp_timewin=(-0.3, 0), channel_selection=["Cz"])
+
+
 
 # Plot ERSP ======================================================================================================================
 
