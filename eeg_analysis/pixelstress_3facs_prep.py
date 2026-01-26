@@ -104,8 +104,8 @@ for dataset in datasets:
 
     # Add variable stage
     df = df.assign(stage="none")
-    df.stage[(df.sequence_nr >= 2) & (df.sequence_nr <= 6)] = "far"
-    df.stage[(df.sequence_nr >= 8) & (df.sequence_nr <= 12)] = "close"
+    df.loc[(df.sequence_nr >= 2) & (df.sequence_nr <= 6), "stage"] = "far"
+    df.loc[(df.sequence_nr >= 8) & (df.sequence_nr <= 12), "stage"] = "close"
 
     # Get rid of not defined trials (regarding the baseline...)
     mask = (df["stage"] != "none").values
@@ -115,12 +115,14 @@ for dataset in datasets:
 
     # Add variable trajectory
     df = df.assign(trajectory="close")
-    df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == -1)] = "below"
-    df.trajectory[(df.block_wiggleroom == 1) & (df.block_outcome == 1)] = "above"
+    df.loc[(df.block_wiggleroom == 1) & (df.block_outcome == -1), "trajectory"] = (
+        "below"
+    )
+    df.loc[(df.block_wiggleroom == 1) & (df.block_outcome == 1), "trajectory"] = "above"
 
     # Add variable stage
     df = df.assign(stage="start")
-    df.stage[(df.block_nr >= 5)] = "end"
+    df.loc[(df.block_nr >= 5), "stage"] = "end"
 
     # Identify and drop non-correct
     mask = ~np.isnan(df["rt"].values)
@@ -130,12 +132,19 @@ for dataset in datasets:
 
     # Make grouped df
     df_grouped = (
-        df.groupby(["stage", "trajectory", "id", "group"])[
-            "rt", "rt_resint", "rt_residuals"
+        df.groupby(["stage", "trajectory", "id", "group"], observed=True)[
+            ["rt", "rt_resint", "rt_residuals"]
         ]
-        .mean()
+        .agg({
+            "rt": ["mean", "std"],         # mean and standard deviation for rt
+            "rt_resint": "mean",           # mean only
+            "rt_residuals": "mean"         # mean only
+        })
         .reset_index()
     )
+    
+    # Flatten columns
+    df_grouped.columns = ["_".join(col).strip("_") for col in df_grouped.columns.values]
 
     # Time-frequency parameters
     n_freqs = 40
