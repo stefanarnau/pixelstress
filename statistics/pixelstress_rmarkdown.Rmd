@@ -34,7 +34,7 @@ df$stage <- factor(df$stage)
 df$id <- factor(df$id)
 
 # List of dependent variables (DVs) to iterate over
-dvs <- c("rt", "accuracy", "cnv_Fz", "cnv_Cz", "mft_target_cross", "posterior_alpha_cti")
+dvs <- c("rt_mean", "accuracy", "drift_rate", "boundary_seperation", "non_decision_time", "cnv_Fz", "cnv_Cz", "mft_target_cross", "posterior_alpha_cti")
 ```
 
 ```{r summary-function}

@@ -11,10 +11,11 @@ from matplotlib.patches import Rectangle
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 import scipy.special
+import pingouin as pg
 
 # Some global settings
 colormap = "rainbow"
-lineplot_palette = ["#E69F00", "#56B4E9", "#009E73"]
+lineplot_palette = ["#888888", "#bb11bb", "#11bbbb"]
 
 
 # Function for ez-diffusion
@@ -85,7 +86,6 @@ def get_erp(erp_label, erp_timewin, channel_selection):
             {
                 "id": row["id"],
                 "group": row["group"],
-                "stage": row["stage"],
                 "feedback": row["feedback"],
                 "μV": topovals,
             }
@@ -93,18 +93,15 @@ def get_erp(erp_label, erp_timewin, channel_selection):
 
     # Average topo df across ids
     topo_df = (
-        pd.DataFrame(topo_df)
-        .groupby(["stage", "feedback", "group"])["μV"]
-        .mean()
-        .reset_index()
+        pd.DataFrame(topo_df).groupby(["feedback", "group"])["μV"].mean().reset_index()
     )
 
     # Re-order topo df
-    new_order = [7, 9, 11, 1, 3, 5, 6, 8, 10, 0, 2, 4]
-    topo_df = topo_df.reindex(new_order).reset_index()
+    # new_order = [7, 9, 11, 1, 3, 5, 6, 8, 10, 0, 2, 4]
+    # topo_df = topo_df.reindex(new_order).reset_index()
 
     # Subplot grid for topos
-    nrows, ncols = 2, 6
+    nrows, ncols = 2, 3
     fig, axes = plt.subplots(nrows, ncols, figsize=(2 * ncols, 2 * nrows))
 
     # Find indices of the channels to highlight
@@ -121,13 +118,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
 
     for i, ax in enumerate(axes.flat):
         plot_data = topo_df["μV"][i]
-        condition_label = (
-            topo_df["group"][i]
-            + " "
-            + topo_df["feedback"][i]
-            + " "
-            + topo_df["stage"][i]
-        )
+        condition_label = topo_df["group"][i] + " " + topo_df["feedback"][i]
         plot_topo = mne.viz.plot_topomap(
             plot_data,
             info,
@@ -181,7 +172,6 @@ def get_erp(erp_label, erp_timewin, channel_selection):
                 {
                     "id": row["id"],
                     "group": row["group"],
-                    "stage": row["stage"],
                     "feedback": row["feedback"],
                     "s": t,
                     "μV": erp_ts[tidx],
@@ -191,7 +181,7 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     # Average plotting df across ids
     new_df = (
         pd.DataFrame(new_df)
-        .groupby(["stage", "feedback", "group", "s"])["μV"]
+        .groupby(["feedback", "group", "s"])["μV"]
         .mean()
         .reset_index()
     )
@@ -204,48 +194,41 @@ def get_erp(erp_label, erp_timewin, channel_selection):
     df_plot = df.copy()
     df_plot = df_plot.rename(columns={erp_label: "μV"})
 
-    stages = ["start", "end"]
     palette = lineplot_palette
 
     fig, axes = plt.subplots(
-        nrows=2, ncols=2, figsize=(14, 10), constrained_layout=False
+        nrows=2, ncols=1, figsize=(10, 10), constrained_layout=False
     )
 
     # Line plot (top row, 2 columns)
-    for i, stage in enumerate(stages):
-        ax = axes[0, i]
-        sns.lineplot(
-            data=new_df[new_df["stage"] == stage],
-            x="s",
-            y="μV",
-            hue="feedback",
-            style="group",
-            palette=palette,
-            ax=ax,
-        )
-        ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
-        ax.invert_yaxis()
-        ax.set_title(stage)
 
+    ax = axes[0, 0]
+    sns.lineplot(
+        data=new_df,
+        x="s",
+        y="μV",
+        hue="feedback",
+        style="group",
+        palette=palette,
+        ax=ax,
+    )
+    ax.axvspan(erp_timewin[0], erp_timewin[1], color="silver", alpha=0.5)
+    ax.invert_yaxis()
     axes[0, 0].legend(loc="best")
-    axes[0, 1].get_legend().remove()
 
     # Boxen plot (bottom row, 2 columns)
-    for i, stage in enumerate(stages):
-        ax = axes[1, i]
-        sns.boxenplot(
-            data=df_plot[df_plot["stage"] == stage],
-            x="group",
-            y="μV",
-            hue="feedback",
-            palette=palette,
-            k_depth=4,
-            ax=ax,
-        )
-        ax.set_title(stage)
 
+    ax = axes[1, 0]
+    sns.boxenplot(
+        data=df_plot,
+        x="group",
+        y="μV",
+        hue="feedback",
+        palette=palette,
+        k_depth=4,
+        ax=ax,
+    )
     axes[1, 0].legend(loc="best")
-    axes[1, 1].get_legend().remove()
 
     # Adjust spacing between subplots
     fig.subplots_adjust(hspace=0.4, wspace=0.2)
@@ -645,8 +628,8 @@ def get_freqband(tf_label, tf_timewin, tf_freqwin, channel_selection, vminmax):
 # =================================================================================================================
 
 # Define paths
-path_in = "/mnt/data_dump/pixelstress/3_3fac_data/"
-path_out = "/mnt/data_dump/pixelstress/4_results/"
+path_in = "/mnt/data_dump/pixelstress/3_2fac_data/"
+path_out = "/mnt/data_dump/pixelstress/4_results_2fac/"
 
 # Define datasets
 datasets = glob.glob(f"{path_in}/*.joblib")
@@ -687,11 +670,7 @@ info.set_montage(montage)
 
 # Cretae a combined factor variable
 df_data["combined"] = (
-    df_data["group"].astype(str)
-    + " "
-    + df_data["feedback"].astype(str)
-    + " "
-    + df_data["stage"].astype(str)
+    df_data["group"].astype(str) + " " + df_data["feedback"].astype(str)
 )
 
 # Drop eeg data for parameterized df
@@ -720,7 +699,18 @@ for idx, row in df.iterrows():
     df.at[idx, "boundary_seperation"] = a
     df.at[idx, "non_decision_time"] = t0
 
-# Plot behavior ========================================================================================================
+aa = bb
+
+# Run mixed ANOVA
+aov = pg.mixed_anova(
+    dv='rt_mean', 
+    between='group', 
+    within='feedback', 
+    subject='id', 
+    data=df
+)
+
+print(aov)
 
 # Set seaborn params
 sns.set(font_scale=1.2)
@@ -741,27 +731,23 @@ if missing:
     raise ValueError(f"Missing DV columns in df: {missing}")
 
 # Orders
-stage_order = ["start", "end"]
 group_order = sorted(df["group"].unique())
 
-# Color palette (3 distinct, colorblind-friendly)
-lineplot_palette = ["#E69F00", "#56B4E9", "#009E73"]
-
-# --- Figure size for A4 with room for caption ---
-# A4 portrait ~ 8.3 x 11.7 inches
-# Leave ~2 inches for caption
-fig_width = max(5 * len(group_order), 8)          # scale with number of groups
-fig_height = max(3.5 * len(dvs), 7.5)            # scaled for rows + bottom margin
+# Figure: rows = DVs, cols = groups
+fig_width = max(5 * len(group_order), 8)
+fig_height = max(3.5 * len(dvs), 8)
 fig, axes = plt.subplots(
     nrows=len(dvs),
     ncols=len(group_order),
     figsize=(fig_width, fig_height),
     sharex=True,
-    sharey='row'
+    sharey="row",  # Share y-axis across each DV row
 )
+
+# Ensure 2D indexing
 axes = np.atleast_2d(axes)
 
-# --- Plot ---
+# Plot
 for row_idx, (dv, row_title) in enumerate(dvs):
     for col_idx, group in enumerate(group_order):
         ax = axes[row_idx, col_idx]
@@ -780,17 +766,16 @@ for row_idx, (dv, row_title) in enumerate(dvs):
             linestyles="-",
             ax=ax,
             palette=lineplot_palette,
-            markersize=9,
-            linewidth=2
+            markersize=8,  # Slightly larger markers
         )
 
-        # Bold y-label only for left column
+        # Only left column gets y-label
         if col_idx == 0:
-            ax.set_ylabel(row_title, fontweight='bold', labelpad=12)
+            ax.set_ylabel(row_title)
         else:
             ax.set_ylabel("")
 
-        # Bottom row x-label
+        # Only bottom row gets x-label
         if row_idx == len(dvs) - 1:
             ax.set_xlabel("Stage")
         else:
@@ -800,54 +785,39 @@ for row_idx, (dv, row_title) in enumerate(dvs):
         ax.set_xticks(range(len(stage_order)))
         ax.set_xticklabels(stage_order)
 
-        # Remove individual legend
+        # Clean legends (shared later)
         if ax.get_legend() is not None:
             ax.legend_.remove()
 
-        # Fixed y-axis formatting for alignment
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y:.2f}"))
+        ax.set_title(group)
 
-        # Remove subplot titles
-        ax.set_title("")
-
-# --- Column headers ---
-for col_idx, group in enumerate(group_order):
-    ax = axes[0, col_idx]
-    ax.annotate(
-        group,
-        xy=(0.5, 1.08),
-        xycoords='axes fraction',
-        ha='center',
-        va='bottom',
-        fontsize=14,
-        fontweight='bold'
-    )
-
-# --- Shared legend below figure ---
+# Shared legend
 handles, labels = axes[0, 0].get_legend_handles_labels()
 fig.legend(
     handles,
     labels,
     title="Feedback",
     loc="lower center",
-    bbox_to_anchor=(0.5, -0.05),
+    bbox_to_anchor=(0.5, -0.03),
     ncol=len(labels),
-    frameon=False
+    frameon=False,
 )
 
-# --- Adjust spacing ---
+# Adjust spacing
 plt.subplots_adjust(
     hspace=0.35,
     wspace=0.2,
-    top=0.88,    # space for column headers
-    bottom=0.18  # leave space for figure caption
+    top=0.95,
+    bottom=0.12,
 )
 
-# --- Save figure for print ---
-fn = os.path.join(path_out, "behavior_and_ddm_params_means_se_pubready.png")
+# Save figure
+fn = os.path.join(path_out, "behavior_and_ddm_params_means_se.png")
 fig.savefig(fn, dpi=600, bbox_inches="tight")
 plt.close(fig)
 
+
+aa = bb
 
 # Plot ERP ======================================================================================================================
 
@@ -876,62 +846,3 @@ get_freqband(
 # Save to csv
 fn = os.path.join(path_out, "stats_table.csv")
 df.to_csv(fn, index=False)
-
-
-from scipy.stats import pearsonr
-
-# DVs
-dvs = ["rt_mean", "accuracy", "drift_rate", "boundary_seperation",
-       "non_decision_time", "cnv_Fz", "cnv_Cz", "mft_target_cross",
-       "posterior_alpha_cti"]
-
-# --- Helper function to compute correlation + p-values ---
-def corr_pvals(df, cols):
-    n = len(cols)
-    corr_matrix = pd.DataFrame(np.zeros((n, n)), index=cols, columns=cols)
-    p_matrix = pd.DataFrame(np.zeros((n, n)), index=cols, columns=cols)
-    
-    for i, col1 in enumerate(cols):
-        for j, col2 in enumerate(cols):
-            if i <= j:  # upper triangle
-                r, p = pearsonr(df[col1], df[col2])
-                corr_matrix.loc[col1, col2] = r
-                corr_matrix.loc[col2, col1] = r
-                p_matrix.loc[col1, col2] = p
-                p_matrix.loc[col2, col1] = p
-    return corr_matrix, p_matrix
-
-# --- 1. Correlation across all rows (subject × condition) ---
-corr_all, p_all = corr_pvals(df, dvs)
-
-# --- 2. Correlation at subject-level (average across conditions) ---
-df_subject = df.groupby("id")[dvs].mean().reset_index()
-corr_subj, p_subj = corr_pvals(df_subject, dvs)
-
-# --- Function to plot heatmap with significant correlations highlighted ---
-def plot_corr_heatmap(corr_matrix, p_matrix, title):
-    mask_sig = p_matrix >= 0.05  # mask non-significant correlations
-    plt.figure(figsize=(10,8))
-    sns.heatmap(
-        corr_matrix,
-        annot=True,
-        fmt=".2f",
-        cmap="coolwarm",
-        center=0,
-        linewidths=0.5,
-        mask=mask_sig,  # mask non-significant
-        cbar_kws={'label': 'Pearson r'}
-    )
-    # Overlay crosses for non-significant correlations
-    for i in range(len(corr_matrix)):
-        for j in range(len(corr_matrix)):
-            if mask_sig.iloc[i,j] == True:
-                plt.text(j+0.5, i+0.5, "×", color='black', ha='center', va='center', fontsize=12)
-    plt.title(title)
-    plt.tight_layout()
-    plt.show()
-
-# --- Plot both heatmaps ---
-plot_corr_heatmap(corr_all, p_all, "DV Correlations (all subject × condition rows)")
-plot_corr_heatmap(corr_subj, p_subj, "DV Correlations (subject-level averages)")
-
