@@ -1,14 +1,13 @@
 # Imports
-import mne
 import glob
-import os
 import pandas as pd
 import numpy as np
 import scipy.io
-from joblib import dump
-import sklearn.linear_model
-from sklearn.preprocessing import MinMaxScaler
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 import pingouin as pg
+import statsmodels.formula.api as smf
+import seaborn as sns
 
 # Define paths
 path_in = "/mnt/data_dump/pixelstress/2_autocleaned/"
@@ -101,26 +100,136 @@ for dataset in datasets:
     )
     df.loc[(df.block_wiggleroom == 1) & (df.block_outcome == 1), "trajectory"] = "above"
     
-    # Get binned versions of feedback
-    df["feedback"] = pd.cut(
-        df["last_feedback_scaled"],
-        bins=3,
-        labels=["below", "close", "above"],
-    )
 
     dfs.append(df)
 
 # combine into one dataframe
 df_trials = pd.concat(dfs, ignore_index=True)
 
-# Reduce info
-cols_to_keep = ["id", "group", "sequence_nr", "rt", "accuracy", "trajectory", "feedback"]
-
-df_trials = df_trials[cols_to_keep]
-
 # IDs to exclude
 ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 40, 49, 83, 32, 48]
 df_trials = df_trials[~df_trials["id"].isin(ids_to_drop)].reset_index()
+
+# Remove first sequences
+df_trials = df_trials[df_trials.sequence_nr > 1]
+
+# Scale control variables
+controls = [
+    "trial_difficulty",
+    "trial_nr_total",
+]
+scaler = StandardScaler()
+df_trials[controls] = scaler.fit_transform(df_trials[controls])
+
+# keep only correct trials
+df_rt = df_trials[df_trials["accuracy"] == 1].copy()
+
+# make sure these are categorical
+df_rt["id"] = df_rt["id"].astype("category")
+df_rt["group"] = df_rt["group"].astype("category")
+
+# Columns to average
+avg_cols = ["rt", "trial_difficulty", "last_feedback_scaled", "trial_nr_total"]
+
+# Aggregate
+df_seq_rt = df_rt.groupby(["id", "block_nr", "sequence_nr"]).agg(
+    mean_rt=("rt", "mean"),
+    mean_trial_difficulty=("trial_difficulty", "mean"),
+    mean_feedback=("last_feedback_scaled", "mean"),
+    mean_trial_nr_total=("trial_nr_total", "mean")
+).reset_index()
+
+# safe log-transform after aggregation
+df_seq_rt["mean_log_rt"] = np.log(df_seq_rt["mean_rt"])
+
+# Drop nans
+df_seq_rt = df_seq_rt.dropna(subset=[
+    "mean_log_rt", 
+    "mean_trial_difficulty", 
+    "mean_feedback", 
+    "mean_trial_nr_total"
+])
+
+# Create mapping from id → group
+id_to_group = df_rt.set_index("id")["group"].to_dict()
+
+# Add group column
+df_seq_rt["group"] = df_seq_rt["id"].map(id_to_group)
+
+# Create quadratic feedback term
+df_seq_rt["mean_feedback_sq"] = df_seq_rt["mean_feedback"]**2
+
+# Model formula
+formula_seq = """
+mean_log_rt ~ group * mean_feedback + group * mean_feedback_sq
+               + mean_trial_difficulty + mean_trial_nr_total
+"""
+
+# Build model
+model_seq = smf.mixedlm(
+    formula_seq,
+    df_seq_rt,
+    groups=df_seq_rt["id"],  # random intercept per subject
+    re_formula="1"
+)
+
+# Fit model
+result_seq = model_seq.fit(method="lbfgs")
+
+# Print results
+print(result_seq.summary())
+
+
+
+
+
+aa=bb
+
+
+
+
+
+
+
+
+
+
+
+# predicted RT
+df_rt["pred_rt"] = np.exp(result.fittedvalues)
+
+# create 5–10 bins of feedback
+df_rt["feedback_bin"] = pd.qcut(df_rt["last_feedback_scaled"], q=15)
+
+# compute mean predicted RT per bin and group
+agg = df_rt.groupby(["group", "feedback_bin"]).agg(
+    mean_pred_rt = ("pred_rt", "mean"),
+    sem_pred_rt = ("pred_rt", lambda x: x.std()/np.sqrt(len(x)))
+).reset_index()
+
+# get bin centers for plotting
+agg["bin_center"] = agg["feedback_bin"].apply(lambda x: x.mid)
+
+plt.figure(figsize=(7,5))
+sns.lineplot(data=agg, x="bin_center", y="mean_pred_rt", hue="group")
+# add error bars for SEM
+for g in agg["group"].unique():
+    gdata = agg[agg["group"]==g]
+    plt.errorbar(
+        gdata["bin_center"], gdata["mean_pred_rt"], 
+        yerr=gdata["sem_pred_rt"], fmt='o', capsize=3
+    )
+
+plt.xlabel("Scaled Feedback")
+plt.ylabel("Predicted RT (ms)")
+plt.title("Predicted RT by Feedback × Group (binned)")
+plt.show()
+
+
+
+aa=bb
+
+
 
 #ids_to_drop = [32, 48, 50, 52, 88]
 
