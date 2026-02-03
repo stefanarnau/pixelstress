@@ -23,14 +23,11 @@ channel_labels = (
     .read()
     .split("\n")[:-1]
 )
-sfreq = 1000.0
-info_erp = mne.create_info(channel_labels, sfreq, ch_types="eeg", verbose=None)
+sfreq = 200.0
+info_tf = mne.create_info(channel_labels, sfreq, ch_types="eeg", verbose=None)
 montage = mne.channels.make_standard_montage("standard_1020")  # or "standard_1005"
-info_erp.set_montage(montage, on_missing="warn", match_case=False)
-adjacency, ch_names = mne.channels.find_ch_adjacency(info_erp, ch_type="eeg")
-
-# Plot sensors (sanity check)
-mne.viz.plot_sensors(info_erp, show_names=True)
+info_tf.set_montage(montage, on_missing="warn", match_case=False)
+adjacency, ch_names = mne.channels.find_ch_adjacency(info_tf, ch_type="eeg")
 
 
 # Helper: build design matrix (within subject)
@@ -56,6 +53,7 @@ def evokeds_to_array(evokeds):
 beta_maps = []  # list of dicts: {id, group, betas{name: Evoked}}
 subj_seq_data_list = []
 
+# Loop datasets
 for dataset in datasets:
     base = dataset.split("_cleaned")[0]
 
@@ -67,17 +65,22 @@ for dataset in datasets:
     if subj_id in ids_to_drop:
         continue
 
-    # Load ERP data: expects EEGLAB .set saved as .mat-like via scipy.io.loadmat
-    mat = scipy.io.loadmat(dataset)
-    erp_data = np.transpose(mat["data"], [2, 0, 1])  # (trials, channels, times)
-    erp_times = mat["times"].ravel()
+    # Load tf eeg data as trials x channles x times
+    tf_data = np.transpose(
+        scipy.io.loadmat(dataset.split("_erp.set")[0] + "_tf.set")["data"], [2, 0, 1]
+    )
+
+    # Load tf times
+    tf_times = scipy.io.loadmat(dataset.split("_erp.set")[0] + "_tf.set")[
+        "times"
+    ].ravel()
 
     # Determine time units for tmin (heuristic: EEGLAB typically ms)
     # If times look like [-1000..2000], that's ms; if [-1..2], that's seconds.
-    if np.nanmax(np.abs(erp_times)) > 20:
-        tmin = erp_times[0] / 1000.0
+    if np.nanmax(np.abs(tf_times)) > 20:
+        tmin = tf_times[0] / 1000.0
     else:
-        tmin = erp_times[0]
+        tmin = tf_times[0]
 
     # Common trials between ERP and TF
     to_keep = np.intersect1d(
@@ -85,17 +88,17 @@ for dataset in datasets:
     )
 
     # Reduce metadata to common trials (copy)
-    df = df_erp[df_erp["trial_nr_total"].isin(to_keep)].copy()
+    df = df_tf[df_tf["trial_nr_total"].isin(to_keep)].copy()
 
-    # Reduce ERP data to those common trials (mask based on ORIGINAL df_erp order)
-    mask_common = np.isin(df_erp["trial_nr_total"].values, to_keep)
-    erp_data = erp_data[mask_common, :, :]
+    # Reduce TF data to those common trials
+    mask_common = np.isin(df_tf["trial_nr_total"].values, to_keep)
+    tf_data = tf_data[mask_common, :, :]
 
     # Basic checks
-    if erp_data.shape[0] != len(df):
+    if tf_data.shape[0] != len(df):
         raise RuntimeError(
             f"Trial alignment mismatch for subject {subj_id}: "
-            f"erp_data {erp_data.shape[0]} vs df {len(df)}"
+            f"tf_data {tf_data.shape[0]} vs df {len(df)}"
         )
 
     # Binarize accuracy
@@ -108,105 +111,179 @@ for dataset in datasets:
     # Remove first sequences
     mask = df["sequence_nr"] > 1
     df = df.loc[mask].reset_index(drop=True)
-    erp_data = erp_data[mask.to_numpy(), :, :]
+    tf_data = tf_data[mask.to_numpy(), :, :]
 
     # Keep only correct trials
     mask = df["accuracy"] == 1
     df = df.loc[mask].reset_index(drop=True)
-    erp_data = erp_data[mask.to_numpy(), :, :]
+    tf_data = tf_data[mask.to_numpy(), :, :]
 
     if len(df) == 0:
         continue
 
-    # -----------------------------
-    # Sequence averaging: (block_nr, sequence_nr)
-    # -----------------------------
+    # Se tf-decomposition parameters
+    freqs = np.arange(4, 31, 2)
+    n_cycles = freqs / 2.0
+
+    # Create epochs object
+    epochs = mne.EpochsArray(tf_data, info_tf, tmin=tmin, verbose=False)
+    epochs.metadata = df
+
+    # TF decomposition
+    power = mne.time_frequency.tfr_morlet(
+        epochs,
+        freqs=freqs,
+        n_cycles=n_cycles,
+        return_itc=False,
+        average=False,
+        output="power",
+        decim=2,
+        n_jobs=-2,
+        verbose=False,
+    )
+
+    # power.data: (n_trials, n_ch, n_freq, n_time)
+    P = power.data
+
+    bl_mask = (power.times >= -1.8) & (power.times <= -1.5)
+
+    # baseline reference per subject, per ch×freq
+    B = P[..., bl_mask].mean(axis=(0, 3))  # (n_ch, n_freq)
+
+    # dB conversion per trial
+    power.data = 10.0 * np.log10((P + 1e-12) / (B[None, :, :, None] + 1e-12))
+
+    # Crpo in time
+    power.crop(tmin=-1.8, tmax=1.0)
+
+    # Times...
+    times = power.times
+
+    # Create info with effective sfreq from time vector
+    sfreq_eff = 1.0 / np.mean(np.diff(times))
+    info_tf_eff = mne.create_info(
+        channel_labels, sfreq_eff, ch_types="eeg", verbose=None
+    )
+    tmin_eff = float(times[0])
+    info_tf_eff.set_montage(montage, on_missing="warn", match_case=False)
+
+    # Define freqbands (inclusive bounds)
+    freqbands = {
+        "theta": (4, 7),
+        "alpha": (8, 13),
+        "beta": (16, 30),
+    }
+
+    # Prepare grouping ONCE (reuse across bands)
     df = df.reset_index(drop=True)
     g = df.groupby(["block_nr", "sequence_nr"], sort=True)
 
-    seq_erp = []
-    seq_meta = []
+    # Store results per band
+    beta_maps_by_band = {band: [] for band in freqbands}
+    subj_seq_data_list = []  # if you want to keep epochs for plotting later
 
-    for (block_nr, seq_nr), idx in g.indices.items():
-        idx = np.asarray(idx)
-        ntr = len(idx)
+    # Use TF time axis + sfreq that matches power.times
+    times = power.times
+    tmin_eff = float(times[0])
 
-        if ntr < min_trials_per_sequence:
+    sfreq_eff = 1.0 / np.mean(np.diff(times))
+    info_tf_eff = info_tf.copy()
+    info_tf_eff["sfreq"] = sfreq_eff
+
+    for band_name, (fmin, fmax) in freqbands.items():
+
+        # Band mask from power.freqs
+        band_mask = (power.freqs >= fmin) & (power.freqs <= fmax)
+        if band_mask.sum() == 0:
+            print(
+                f"[WARN] {band_name}: no freqs in {fmin}-{fmax} Hz (available: {power.freqs.min()}-{power.freqs.max()})"
+            )
             continue
 
-        # Average ERP across trials in this sequence
-        seq_avg = erp_data[idx].mean(axis=0)  # (n_ch, n_time)
-        seq_erp.append(seq_avg)
+        # Average over frequencies -> (n_trials, n_ch, n_time)
+        tf_band_data = power.data[:, :, band_mask, :].mean(axis=2)
 
-        df_sub = df.loc[idx]
+        # -----------------------------
+        # Sequence averaging
+        # -----------------------------
+        seq_data = []
+        seq_meta = []
 
-        # Feedback should be constant within sequence; take first
-        f = float(df_sub["last_feedback_scaled"].iloc[0])
+        for (block_nr, seq_nr), idx in g.indices.items():
+            idx = np.asarray(idx)
+            ntr = len(idx)
 
-        # Difficulty may vary; average within sequence (only correct trials)
-        mean_difficulty = float(df_sub["trial_difficulty"].mean())
+            if ntr < min_trials_per_sequence:
+                continue
 
-        # Half from block number
-        half = "first" if int(block_nr) <= 4 else "second"
+            # Average across trials in sequence -> (n_ch, n_time)
+            seq_avg = tf_band_data[idx].mean(axis=0)
+            seq_data.append(seq_avg)
 
-        # Group constant within subject; take first
-        group = df_sub["group"].iloc[0]
+            df_sub = df.loc[idx]
 
-        seq_meta.append(
-            {
-                "id": subj_id,
-                "group": group,
-                "block_nr": int(block_nr),
-                "sequence_nr": int(seq_nr),
-                "n_trials": int(ntr),
-                "mean_trial_difficulty": mean_difficulty,
-                "f": f,
-                "f2": f**2,
-                "half": half,
-            }
+            f = float(df_sub["last_feedback_scaled"].iloc[0])
+            mean_difficulty = float(
+                pd.to_numeric(df_sub["trial_difficulty"], errors="coerce").mean()
+            )
+            half = "first" if int(block_nr) <= 4 else "second"
+            group = df_sub["group"].iloc[0]
+
+            seq_meta.append(
+                dict(
+                    id=subj_id,
+                    group=group,
+                    block_nr=int(block_nr),
+                    sequence_nr=int(seq_nr),
+                    n_trials=int(ntr),
+                    mean_trial_difficulty=mean_difficulty,
+                    f=f,
+                    f2=f**2,
+                    half=half,
+                    freqband=band_name,
+                )
+            )
+
+        # Not enough sequences → skip this band for this subject
+        if len(seq_data) < 5:
+            continue
+
+        seq_arr = np.stack(seq_data, axis=0)  # (n_seq, n_ch, n_time)
+        df_seq = pd.DataFrame(seq_meta)
+        df_seq["half"] = df_seq["half"].astype("category")
+
+        # Build EpochsArray of sequences (NOTE: tmin must match power.times[0])
+        epochs_seq = mne.EpochsArray(seq_arr, info_tf_eff, tmin=tmin_eff, verbose=False)
+        epochs_seq.metadata = df_seq
+
+        # Design matrix
+        X, names = build_design_matrix(df_seq)
+
+        # Regression
+        lm = mne.stats.linear_regression(epochs_seq, X, names=names)
+
+        # Betas as Evoked objects (ch × time)
+        betas = {name: lm[name].beta for name in names}
+
+        beta_maps_by_band[band_name].append(
+            dict(
+                id=subj_id,
+                group=df_seq["group"].iloc[0],
+                n_sequences=int(len(df_seq)),
+                betas=betas,
+                times=epochs_seq.times,
+                info=epochs_seq.info,
+            )
         )
 
-    if len(seq_erp) < 5:
-        # Not enough sequences to fit a regression stably
-        continue
-
-    erp_seq_data = np.stack(seq_erp, axis=0)  # (n_seq, n_ch, n_time)
-    df_seq = pd.DataFrame(seq_meta)
-
-    # Ensure types
-    df_seq["half"] = df_seq["half"].astype("category")
-
-    # Build EpochsArray of sequences
-    epochs_seq = mne.EpochsArray(erp_seq_data, info_erp, tmin=tmin, verbose=False)
-    epochs_seq.metadata = df_seq
-
-    # Crop in time
-    epochs_seq.crop(tmin=-1, tmax=0.5)
-
-    # Downsample to 500 Hz (includes anti-alias filtering)
-    epochs_seq.resample(500, npad="auto")
-
-    # Get design matrix
-    X, names = build_design_matrix(df_seq)
-
-    # Fit model
-    lm = mne.stats.linear_regression(epochs_seq, X, names=names)
-
-    # Extract betas as Evoked
-    betas = {name: lm[name].beta for name in names}
-
-    beta_maps.append(
-        {
-            "id": subj_id,
-            "group": df_seq["group"].iloc[0],
-            "n_sequences": int(len(df_seq)),
-            "betas": betas,
-        }
-    )
-
-    subj_seq_data_list.append(
-        {"id": subj_id, "group": df_seq["group"].iloc[0], "epochs": epochs_seq}
-    )
+        subj_seq_data_list.append(
+            dict(
+                id=subj_id,
+                group=df_seq["group"].iloc[0],
+                freqband=band_name,
+                epochs=epochs_seq,
+            )
+        )
 
 
 # ====== Main effect: f2 ===================================================================================
