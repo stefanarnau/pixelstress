@@ -142,30 +142,34 @@ for dataset in datasets:
         n_jobs=-2,
         verbose=False,
     )
-    
+
     # power.data: (n_trials, n_ch, n_freq, n_time)
     P = power.data
-    
+
     bmask = (power.times >= -1.8) & (power.times <= -1.5)
-    
+
     # baseline reference per subject, per ch×freq
     B = P[..., bmask].mean(axis=(0, 3))  # (n_ch, n_freq)
-    
+
     # dB conversion per trial
-    power.data = 10.0 * np.log10((P + 1e-12) / (B[None, :, :, None] + 1e-12))  # (trials, ch, freq, time)
-    
+    power.data = 10.0 * np.log10(
+        (P + 1e-12) / (B[None, :, :, None] + 1e-12)
+    )  # (trials, ch, freq, time)
+
     # Crpo in time
     power.crop(tmin=-1.8, tmax=1.0)
-    
+
     # Times...
     times = power.times
-    
+
     # Create info with effective sfreq from time vector
     sfreq_eff = 1.0 / np.mean(np.diff(times))
-    info_tf_eff = mne.create_info(channel_labels, sfreq_eff, ch_types="eeg", verbose=None)
+    info_tf_eff = mne.create_info(
+        channel_labels, sfreq_eff, ch_types="eeg", verbose=None
+    )
     tmin_eff = float(times[0])
     info_tf_eff.set_montage(montage, on_missing="warn", match_case=False)
-    
+
     # -----------------------------
     # Sequence averaging: (block_nr, sequence_nr)
     # -----------------------------
@@ -247,12 +251,10 @@ for dataset in datasets:
         # Slice one frequency -> (n_seq, n_ch, n_time)
         seq_f = tf_seq_data_z[:, :, fi, :]
 
-        epochs_seq_f = mne.EpochsArray(
-            seq_f, info_tf_eff, tmin=tmin_eff, verbose=False
-        )
+        epochs_seq_f = mne.EpochsArray(seq_f, info_tf_eff, tmin=tmin_eff, verbose=False)
         epochs_seq_f.metadata = df_seq
         lm = mne.stats.linear_regression(epochs_seq_f, X, names=names)
-        
+
         # Extract betas (Evoked) and store into arrays
         for name in names:
             betas[name][:, fi, :] = lm[name].beta.data  # (n_ch, n_time)
@@ -304,11 +306,10 @@ T_obs_g, clusters_g, pvals_g, H0_g = mne.stats.spatio_temporal_cluster_test(
     [X_f2_exp, X_f2_ctl],
     adjacency=adj_tfs,
     n_permutations=2000,
-    #threshold=t_thresh,
+    # threshold=t_thresh,
     tail=0,
     n_jobs=-2,
 )
-
 
 
 # = plot =================================================================================
@@ -320,6 +321,7 @@ print(f"{len(good)} significant clusters at alpha={alpha}")
 times = beta_maps_tf[0]["times"]
 freqs = beta_maps_tf[0]["freqs"]
 info = beta_maps_tf[0]["info"]
+
 
 def get_cluster_indices_tf(cluster, n_times, n_freqs, n_ch):
     """
@@ -336,7 +338,9 @@ def get_cluster_indices_tf(cluster, n_times, n_freqs, n_ch):
     # Case 2: tuple of index arrays OR boolean 1D masks
     if isinstance(cluster, tuple):
         if len(cluster) != 3:
-            raise ValueError(f"Expected 3 elements (time,freq,space), got {len(cluster)}")
+            raise ValueError(
+                f"Expected 3 elements (time,freq,space), got {len(cluster)}"
+            )
         t, f, s = cluster
 
         # If boolean masks, convert to indices
@@ -356,8 +360,9 @@ def _cluster_inds(clu):
     ti, fi, si = clu
     return np.unique(ti), np.unique(fi), np.unique(si)
 
+
 for ci in good:
-    
+
     n_times, n_freqs, n_ch = X_f2.shape[1], X_f2.shape[2], X_f2.shape[3]
 
     for ci in np.where(pvals < 0.05)[0]:
@@ -365,11 +370,12 @@ for ci in good:
 
         print(ci, len(ti), len(fi), len(si))
 
-
     tmin, tmax = times[ti[0]], times[ti[-1]]
     fmin, fmax = freqs[fi[0]], freqs[fi[-1]]
 
-    print(f"\nCluster {ci}: {tmin:.3f}–{tmax:.3f}s, {fmin:.1f}–{fmax:.1f}Hz, p={pvals[ci]:.4f}")
+    print(
+        f"\nCluster {ci}: {tmin:.3f}–{tmax:.3f}s, {fmin:.1f}–{fmax:.1f}Hz, p={pvals[ci]:.4f}"
+    )
     print(f"  n_times={len(ti)}, n_freqs={len(fi)}, n_ch={len(si)}")
 
     # ---------------------------------------------------------
@@ -393,7 +399,9 @@ for ci in good:
 
     # Cluster outline as contour (white + black for visibility)
     # Need x,y grids in data coordinates
-    tt, ff = np.meshgrid(times, freqs, indexing="xy")  # shapes (freq, time) if indexing=xy
+    tt, ff = np.meshgrid(
+        times, freqs, indexing="xy"
+    )  # shapes (freq, time) if indexing=xy
     # Our tf_mask is (time, freq) so transpose it for (freq, time)
     plt.contour(
         times,
@@ -445,7 +453,9 @@ for ci in good:
             markersize=8,
         ),
     )
-    fig.suptitle(f"β_f² topo (cluster {ci}) {tmin:.2f}–{tmax:.2f}s, {fmin:.1f}–{fmax:.1f}Hz")
+    fig.suptitle(
+        f"β_f² topo (cluster {ci}) {tmin:.2f}–{tmax:.2f}s, {fmin:.1f}–{fmax:.1f}Hz"
+    )
     plt.show()
 
     # ---------------------------------------------------------

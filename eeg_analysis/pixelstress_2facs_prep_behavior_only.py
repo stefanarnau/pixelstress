@@ -100,7 +100,7 @@ for dataset in datasets:
         "below"
     )
     df.loc[(df.block_wiggleroom == 1) & (df.block_outcome == 1), "trajectory"] = "above"
-    
+
     # Get binned versions of feedback
     df["feedback"] = pd.cut(
         df["last_feedback_scaled"],
@@ -110,11 +110,26 @@ for dataset in datasets:
 
     dfs.append(df)
 
+    df = df_erp[df_erp["trial_nr_total"].isin(to_keep)].copy()
+df["accuracy"] = (df["accuracy"] == 1).astype(int)
+df = df.rename(columns={"session_condition": "group"})
+df["group"] = df["group"].replace({1: "experimental", 2: "control"})
+dfs.append(df)
+
+
 # combine into one dataframe
 df_trials = pd.concat(dfs, ignore_index=True)
 
 # Reduce info
-cols_to_keep = ["id", "group", "sequence_nr", "rt", "accuracy", "trajectory", "feedback"]
+cols_to_keep = [
+    "id",
+    "group",
+    "sequence_nr",
+    "rt",
+    "accuracy",
+    "trajectory",
+    "feedback",
+]
 
 df_trials = df_trials[cols_to_keep]
 
@@ -122,18 +137,18 @@ df_trials = df_trials[cols_to_keep]
 ids_to_drop = [1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 40, 49, 83, 32, 48]
 df_trials = df_trials[~df_trials["id"].isin(ids_to_drop)].reset_index()
 
-#ids_to_drop = [32, 48, 50, 52, 88]
+# ids_to_drop = [32, 48, 50, 52, 88]
 
 # Drop first sequences
 results = []
 within_factor = "trajectory"
 for seq_to_drop in [1, 2, 3, 4, 5]:
-    
+
     df_trials = df_trials[(df_trials.sequence_nr > seq_to_drop).values]
-    
+
     # Group dataframe
     group_cols = ["id", "group", within_factor]
-    
+
     # RT stats: only correct trials
     rt_df = (
         df_trials[df_trials["accuracy"] == 1]
@@ -144,45 +159,51 @@ for seq_to_drop in [1, 2, 3, 4, 5]:
             n_trials=("rt", "size"),  # number of correct trials
         )
     )
-    
+
     # Accuracy: proportion correct
     acc_df = df_trials.groupby(group_cols, as_index=False).agg(acc=("accuracy", "mean"))
-    
+
     # Merge
     df_summary = pd.merge(rt_df, acc_df, on=group_cols, how="outer")
-    
+
     # Calculate EZ-diffusion parameters ========================================================================================================
     df_summary["drift_rate"] = 0
     df_summary["boundary_seperation"] = 0
     df_summary["non_decision_time"] = 0
-    
+
     for idx, row in df_summary.iterrows():
-    
+
         a, v, t0 = ez_diffusion(
             row["mean_rt"], row["var_rt"] ** 2, row["acc"], row["n_trials"]
         )
         df_summary.at[idx, "drift_rate"] = v
         df_summary.at[idx, "boundary_seperation"] = a
         df_summary.at[idx, "non_decision_time"] = t0
-    
+
     # Run mixed ANOVA
     aov = pg.mixed_anova(
-        dv="mean_rt", between="group", within=within_factor, subject="id", data=df_summary
+        dv="mean_rt",
+        between="group",
+        within=within_factor,
+        subject="id",
+        data=df_summary,
     )
-    
+
     # Get pvals
     pvals_df = (
-        aov.set_index('Source')['p-unc']
-           .loc[['group', within_factor, 'Interaction']]
-           .rename({
-               'group': 'p_group',
-               within_factor: 'p_' + within_factor,
-               'Interaction': 'p_interaction'
-           })
-           .to_frame()
-           .T
+        aov.set_index("Source")["p-unc"]
+        .loc[["group", within_factor, "Interaction"]]
+        .rename(
+            {
+                "group": "p_group",
+                within_factor: "p_" + within_factor,
+                "Interaction": "p_interaction",
+            }
+        )
+        .to_frame()
+        .T
     )
-    pvals_df['seq_pos_excluded'] = seq_to_drop
+    pvals_df["seq_pos_excluded"] = seq_to_drop
     results.append(pvals_df)
 
 # combine into one dataframe
