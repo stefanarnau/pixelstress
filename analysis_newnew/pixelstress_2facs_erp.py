@@ -181,7 +181,7 @@ for dataset in datasets:
     epochs_seq.metadata = df_seq
 
     # Crop in time
-    epochs_seq.crop(tmin=-1, tmax=0.5)
+    epochs_seq.crop(tmin=-1.5, tmax=0.5)
 
     # Downsample to 500 Hz (includes anti-alias filtering)
     epochs_seq.resample(500, npad="auto")
@@ -220,7 +220,7 @@ T_obs, clusters, pvals, H0 = mne.stats.spatio_temporal_cluster_1samp_test(
     adjacency=adjacency,
     n_permutations=2000,
     tail=0,  # two-sided
-    n_jobs=1,
+    n_jobs=-1,
 )
 
 
@@ -303,7 +303,7 @@ T_obs, clusters, pvals, H0 = mne.stats.spatio_temporal_cluster_test(
     adjacency=adjacency,
     n_permutations=2000,
     tail=0,
-    n_jobs=1,
+    n_jobs=-1,
 )
 
 alpha = 0.05
