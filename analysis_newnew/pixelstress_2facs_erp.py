@@ -115,12 +115,7 @@ for dataset in datasets:
     df = df.loc[mask].reset_index(drop=True)
     erp_data = erp_data[mask.to_numpy(), :, :]
 
-    if len(df) == 0:
-        continue
-
-    # -----------------------------
-    # Sequence averaging: (block_nr, sequence_nr)
-    # -----------------------------
+    # Groupby block and sequence to get trial indices of individual sequences
     df = df.reset_index(drop=True)
     g = df.groupby(["block_nr", "sequence_nr"], sort=True)
 
@@ -181,7 +176,7 @@ for dataset in datasets:
     epochs_seq.metadata = df_seq
 
     # Crop in time
-    epochs_seq.crop(tmin=-1.5, tmax=0.5)
+    epochs_seq.crop(tmin=-1, tmax=0.5)
 
     # Downsample to 500 Hz (includes anti-alias filtering)
     epochs_seq.resample(500, npad="auto")
@@ -220,7 +215,7 @@ T_obs, clusters, pvals, H0 = mne.stats.spatio_temporal_cluster_1samp_test(
     adjacency=adjacency,
     n_permutations=2000,
     tail=0,  # two-sided
-    n_jobs=-1,
+    n_jobs=1,
 )
 
 
@@ -303,7 +298,7 @@ T_obs, clusters, pvals, H0 = mne.stats.spatio_temporal_cluster_test(
     adjacency=adjacency,
     n_permutations=2000,
     tail=0,
-    n_jobs=-1,
+    n_jobs=1,
 )
 
 alpha = 0.05
