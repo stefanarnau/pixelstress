@@ -178,12 +178,20 @@ for dataset in datasets:
     tf_data = tf_data[mask.to_numpy(), :, :]
 
     # Se tf-decomposition parameters
-    freqs = np.arange(4, 31, 2)
-    n_cycles = freqs / 2.0
+    freqs = np.linspace(4, 30, 15)
+    n_cycles = np.linspace(4, 10, len(freqs))
+    
+    # Create Epochs for erp data to apply CSD
+    #epochs_tmp = mne.EpochsArray(erp_data, info_erp, tmin=tmin_erp, baseline=None)
+    #epochs_tmp = compute_current_source_density(epochs_tmp)
+    #erp_data = epochs_tmp.get_data()
 
-    # Create epochs object
+    # Create epochs object for tfr
     epochs = mne.EpochsArray(tf_data, info_tf, tmin=tmin_tf, verbose=False)
     epochs.metadata = df
+    
+    # Apply CSD to tfr data
+    #epochs = compute_current_source_density(epochs)
 
     # TF decomposition
     power = epochs.compute_tfr(
@@ -359,6 +367,32 @@ for dataset in datasets:
 
     # Extract betas as Evoked
     betas_erp = {name: lm_erp[name].beta for name in names}
+    
+    
+    # Container for betas of each regressor in electrode x frequency x time -space
+    betas_eft = {
+        name: np.zeros(
+            (power_seq_bl.shape[1], power_seq_bl.shape[2], power_seq_bl.shape[3])
+        )
+        for name in names
+    }
+
+    # Loop over frequencies: run regression on (n_seq, n_ch, n_time) at each freq
+    for fi in range(power_seq_bl.shape[2]):
+
+        # Slice one frequency as (n_seq, n_ch, n_time)
+        seq_f = power_seq_bl.data[:, :, fi, :]
+
+        # Create epochsArray from that
+        epochs_seq_f = mne.EpochsArray(seq_f, power_seq_bl.info, tmin=power_seq_bl.tmin, verbose=False)
+        epochs_seq_f.metadata = df_seq
+        lm = mne.stats.linear_regression(epochs_seq_f, desmat, names=names)
+
+        # Extract betas (Evoked) and store into arrays
+        for name in names:
+            betas_eft[name][:, fi, :] = lm[name].beta.data  # (n_ch, n_time)
+            
+            
 
     lm_by_band = {}
     betas_by_band = {}
@@ -419,6 +453,25 @@ for dataset in datasets:
     # Save ERP betas
     erp_beta_f = sub_dir / f"sub-{subj_id:04d}_lm-erp_betas-ave.fif"
     mne.write_evokeds(erp_beta_f, [betas_erp[n] for n in names], overwrite=True)
+    
+    # Save electrode x freq x time betas (EFT)
+    eft_beta_f = sub_dir / f"sub-{subj_id:04d}_lm-tf_eft_betas.npz"
+    
+    # Stack as (n_reg, n_ch, n_freq, n_time)
+    reg_names = np.array(names, dtype="U") 
+    eft_stack = np.stack([betas_eft[n] for n in names], axis=0).astype(np.float32)
+    
+    np.savez_compressed(
+        eft_beta_f,
+        betas=eft_stack,                    # (n_reg, n_ch, n_freq, n_time)
+        regressor_names=reg_names,          # (n_reg,)
+        ch_names=np.array(power_seq_bl.ch_names, dtype="U"),
+        freqs=np.array(power_seq_bl.freqs, dtype=np.float32),
+        times=np.array(power_seq_bl.times, dtype=np.float32),
+        tmin=float(power_seq_bl.tmin),
+        baseline=np.array(baseline, dtype=np.float32),
+    )
+
 
     # Save TF band betas
     tf_beta_files = {}
@@ -439,6 +492,7 @@ for dataset in datasets:
             tf_theta_betas_path=str(tf_beta_files["theta"]),
             tf_alpha_betas_path=str(tf_beta_files["alpha"]),
             tf_beta_betas_path=str(tf_beta_files["beta"]),
+            tf_eft_betas_path=str(eft_beta_f), 
         )
     )
 
