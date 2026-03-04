@@ -96,6 +96,10 @@ info_tf = mne.pick_info(
     info_tf, [info_tf.ch_names.index(ch) for ch in sorted_channel_names]
 )
 
+# Save info objects
+mne.io.write_info(path_out / "info_tf.fif", info_tf)
+mne.io.write_info(path_out / "info_erp.fif", info_erp)
+
 # Define adjacencies
 adjacency, ch_names = mne.channels.find_ch_adjacency(info_erp, ch_type="eeg")
 
@@ -178,7 +182,7 @@ for dataset in datasets:
     tf_data = tf_data[mask.to_numpy(), :, :]
 
     # Se tf-decomposition parameters
-    freqs = np.linspace(4, 30, 15)
+    freqs = np.linspace(4, 25, 30)
     n_cycles = np.linspace(4, 10, len(freqs))
     
     # Create Epochs for erp data to apply CSD
@@ -384,7 +388,9 @@ for dataset in datasets:
         seq_f = power_seq_bl.data[:, :, fi, :]
 
         # Create epochsArray from that
-        epochs_seq_f = mne.EpochsArray(seq_f, power_seq_bl.info, tmin=power_seq_bl.tmin, verbose=False)
+        epochs_seq_f = mne.EpochsArray(
+            seq_f, power_seq_bl.info, tmin=power_seq_bl.times[0], verbose=False
+        )
         epochs_seq_f.metadata = df_seq
         lm = mne.stats.linear_regression(epochs_seq_f, desmat, names=names)
 
@@ -497,5 +503,5 @@ for dataset in datasets:
     )
 
 # Save index
-index = pd.DataFrame(rows).sort_values("id").reset_index(drop=True)
-index.to_csv(path_out / "subject_index.csv", index=False)
+index_df = pd.DataFrame(rows).sort_values("id").reset_index(drop=True)
+index_df.to_csv(path_out / "subject_index.csv", index=False)
