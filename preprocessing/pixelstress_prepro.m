@@ -4,8 +4,8 @@ clear all;
 PATH_EEGLAB = '/home/plkn/eeglab2025.0.0/';
 PATH_RAW = '/mnt/data_dump/pixelstress/0_eeg_raw/';
 PATH_CONTROL_FILES = '/mnt/data_dump/pixelstress/0_control_files/';
-PATH_ICSET = '/mnt/data_dump/pixelstress/1_icset/';
-PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned/';
+PATH_ICSET = '/mnt/data_dump/pixelstress/1_icset_45/';
+PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned_45/';
 
 
 subject_list = {'9_1',...
@@ -294,8 +294,8 @@ for s = 1 : length(subject_list)
     EEG_TF = pop_resample(EEG, 200);
 
     % Filter
-    EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 30], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
-    EEG_TF = pop_basicfilter(EEG_TF, [1 : EEG_TF.nbchan], 'Cutoff', [   1, 30], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary');
+    EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 45], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
+    EEG_TF = pop_basicfilter(EEG_TF, [1 : EEG_TF.nbchan], 'Cutoff', [   1, 45], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary');
         
     % Bad channel detection
     [EEG, EEG.chans_rejected]       = pop_rejchan(EEG,    'elec', [1 : EEG.nbchan],    'threshold', 5, 'norm', 'on', 'measure', 'kurt');
