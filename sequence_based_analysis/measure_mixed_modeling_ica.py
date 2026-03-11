@@ -23,7 +23,7 @@ file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long.csv"
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-measure = "beta_flat"   # change to "theta_flat", "beta_flat", "alpha_flat", or "exponent"
+measure = "exponent"   # change to "theta_flat", "beta_flat", "alpha_flat", or "exponent"
 
 # used only to determine how many ICs to extract
 variance_threshold = 0.80

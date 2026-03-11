@@ -24,7 +24,7 @@ file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long.csv"
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-measure = "exponent"   # change to "theta_flat", "beta_flat", or "exponent"
+measure = "alpha_flat"   # change to "theta_flat", "beta_flat", or "exponent"
 variance_threshold = 0.90
 min_subjects_per_component_model = 8
 min_obs_per_component_model = 50
