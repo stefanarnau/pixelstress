@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
-# Leave-one-subject-out effect-weighted spatial filtering + final MLM
-# PARALLELIZED ACROSS HELD-OUT SUBJECTS
-# Final version matching RT script:
+# Batch LOSO effect-weighted spatial filtering + final MLM
+# Loops over EEG measures and target effects
+# Matches final RT script:
 #   - centered difficulty
 #   - centered sequence number
 #   - orthogonalized feedback terms: f_lin, f_quad
 #   - sign alignment of fold filters to full-sample reference map
+#   - selects one reference method from input file
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -22,21 +23,40 @@ from joblib import Parallel, delayed
 # Paths
 # -----------------------------------------------------------------------------
 path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
-path_out = Path("/mnt/data_dump/pixelstress/5_effect_weighted_loso/")
+path_out = Path("/mnt/data_dump/pixelstress/6_batch_loso_effect_weighted/")
 path_out.mkdir(parents=True, exist_ok=True)
 
-file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long.csv"
+file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_with_reference.csv"
 
 
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-measure = "theta_flat"
-target_effect = "group[T.experimental]:f_quad"
+reference_to_use = "CSD"   # "CAR" or "CSD"
+
+measures = [
+    "exponent",
+    "theta_flat",
+    "alpha_flat",
+    "beta_flat",
+]
+
+target_effects = [
+    "group[T.experimental]",
+    "f_lin",
+    "f_quad",
+    "group[T.experimental]:f_lin",
+    "group[T.experimental]:f_quad",
+]
+
+#formula = """
+#score ~ group * f_lin + group * f_quad
+#        + mean_trial_difficulty_c + half + sequence_nr_c
+#"""
 
 formula = """
 score ~ group * f_lin + group * f_quad
-        + mean_trial_difficulty_c + half + sequence_nr_c
+        + mean_trial_difficulty_c + half
 """
 
 re_formulas = [
@@ -45,10 +65,10 @@ re_formulas = [
     "1",
 ]
 
-effects = [
+effects_for_topomaps = [
+    "group[T.experimental]",
     "f_lin",
     "f_quad",
-    "group[T.experimental]",
     "group[T.experimental]:f_lin",
     "group[T.experimental]:f_quad",
     "half[T.second]",
@@ -62,6 +82,8 @@ min_obs_per_electrode_model = 50
 n_jobs_loso = -1
 parallel_backend = "loky"
 parallel_verbose = 10
+
+n_bins_plot = 9
 
 
 # -----------------------------------------------------------------------------
@@ -267,48 +289,13 @@ def run_final_score_model(
             "random_effects": used_re,
             "n_subjects": dsub["id"].nunique(),
             "n_obs": len(dsub),
+            "llf": fit.llf,
+            "aic": fit.aic if np.isfinite(fit.aic) else np.nan,
+            "bic": fit.bic if np.isfinite(fit.bic) else np.nan,
         }
     )
 
     return fit, used_re, dsub, df_final
-
-
-def plot_topomap_from_vector(
-    values: np.ndarray,
-    info: mne.Info,
-    title: str,
-):
-    vmax = np.nanmax(np.abs(values))
-    if not np.isfinite(vmax) or vmax == 0:
-        vmax = 1.0
-
-    fig = plt.figure(figsize=(5, 4))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1, 0.05])
-    ax = fig.add_subplot(gs[0, 0])
-    cax = fig.add_subplot(gs[0, 1])
-
-    evoked = mne.EvokedArray(
-        values[:, None],
-        info,
-        tmin=0.0,
-        verbose=False,
-    )
-
-    evoked.plot_topomap(
-        times=[0],
-        axes=[ax, cax],
-        colorbar=True,
-        time_format="",
-        cmap="RdBu_r",
-        vlim=(-vmax, vmax),
-        scalings=1,
-        show=False,
-        sphere=None,
-    )
-
-    ax.set_title(title)
-    plt.tight_layout()
-    plt.show()
 
 
 def build_reference_map(
@@ -354,21 +341,115 @@ def align_filter_to_reference(
     return w
 
 
+def save_topomap(
+    values: np.ndarray,
+    info: mne.Info,
+    title: str,
+    out_file: Path,
+):
+    vmax = np.nanmax(np.abs(values))
+    if not np.isfinite(vmax) or vmax == 0:
+        vmax = 1.0
+
+    fig = plt.figure(figsize=(5, 4))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1, 0.05])
+    ax = fig.add_subplot(gs[0, 0])
+    cax = fig.add_subplot(gs[0, 1])
+
+    evoked = mne.EvokedArray(
+        values[:, None],
+        info,
+        tmin=0.0,
+        verbose=False,
+    )
+
+    evoked.plot_topomap(
+        times=[0],
+        axes=[ax, cax],
+        colorbar=True,
+        time_format="",
+        cmap="RdBu_r",
+        vlim=(-vmax, vmax),
+        scalings=1,
+        show=False,
+        sphere=None,
+    )
+
+    ax.set_title(title)
+    plt.tight_layout()
+    fig.savefig(out_file, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_full_data_topomap_panel(
+    df_beta_full: pd.DataFrame,
+    electrodes: list[str],
+    info: mne.Info,
+    terms_to_plot: list[str],
+    title: str,
+    out_file: Path,
+):
+    n_terms = len(terms_to_plot)
+    if n_terms == 0:
+        return
+
+    fig = plt.figure(figsize=(3.5 * n_terms, 4))
+    gs = fig.add_gridspec(1, n_terms + 1, width_ratios=[1] * n_terms + [0.05])
+
+    axes = [fig.add_subplot(gs[0, i]) for i in range(n_terms)]
+    cax = fig.add_subplot(gs[0, n_terms])
+
+    for i, term in enumerate(terms_to_plot):
+        topo = (
+            df_beta_full[df_beta_full["term"] == term]
+            .set_index("electrode")
+            .reindex(electrodes)["beta"]
+            .to_numpy()
+        )
+
+        vmax = np.nanmax(np.abs(topo))
+        if not np.isfinite(vmax) or vmax == 0:
+            vmax = 1.0
+
+        evoked = mne.EvokedArray(
+            topo[:, None],
+            info,
+            tmin=0.0,
+            verbose=False,
+        )
+
+        evoked.plot_topomap(
+            times=[0],
+            axes=axes[i] if i < n_terms - 1 else [axes[i], cax],
+            colorbar=(i == n_terms - 1),
+            cmap="RdBu_r",
+            vlim=(-vmax, vmax),
+            scalings=1,
+            show=False,
+            sphere=None,
+        )
+
+        axes[i].set_title(term)
+
+    fig.suptitle(title, fontsize=16)
+    plt.tight_layout()
+    fig.savefig(out_file, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_score_model_curves_with_counts(
     df_model,
     fit,
     outcome_name,
+    out_file,
     n_bins=8,
-    path_out=None,
 ):
     d = df_model.copy()
     group_order = ["control", "experimental"]
 
-    # fixed-width bins across the observed signed-feedback range
     edges = np.linspace(d["f"].min(), d["f"].max(), n_bins + 1)
     d["f_bin"] = pd.cut(d["f"], bins=edges, include_lowest=True)
 
-    # observed means by group x bin
     agg = (
         d.groupby(["group", "f_bin"], observed=True)
         .agg(
@@ -382,10 +463,8 @@ def plot_score_model_curves_with_counts(
     agg["f_mid"] = agg["f_bin"].apply(lambda iv: (iv.left + iv.right) / 2).astype(float)
     agg = agg.sort_values(["group", "f_mid"]).reset_index(drop=True)
 
-    # build smooth prediction grid over original signed feedback
     f_grid = np.linspace(d["f"].min(), d["f"].max(), 300)
 
-    # use the same transformation logic as in the fitted data
     f_mean = float(d["f"].mean())
     f_c_grid = f_grid - f_mean
     f_quad_center = float(np.mean((d["f"] - f_mean) ** 2))
@@ -425,7 +504,6 @@ def plot_score_model_curves_with_counts(
         sharex=True,
     )
 
-    # top panel: observed bins + model curves
     ax = axes[0]
 
     for group_name in group_order:
@@ -458,7 +536,6 @@ def plot_score_model_curves_with_counts(
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    # bottom panel: counts per bin
     ax2 = axes[1]
     width = np.diff(edges).mean() * 0.4
 
@@ -473,7 +550,6 @@ def plot_score_model_curves_with_counts(
             width=width,
             color=color,
             alpha=0.6,
-            label=group_name,
         )
 
     ax2.axvline(0, color="k", linestyle="--", linewidth=1.2)
@@ -482,144 +558,28 @@ def plot_score_model_curves_with_counts(
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-
-    if path_out is not None:
-        fig.savefig(
-            path_out / f"{outcome_name}_feedback_curves_counts_{safe_name(target_effect)}.png",
-            dpi=150,
-            bbox_inches="tight",
-        )
-
-    plt.show()
-    
-# -----------------------------------------------------------------------------
-# Load data
-# -----------------------------------------------------------------------------
-df = pd.read_csv(file_in)
-
-df["id"] = df["id"].astype("category")
-df["group"] = df["group"].astype("category")
-df["ch_name"] = df["ch_name"].astype("category")
-df["half"] = df["half"].astype("category")
-
-if "window" in df.columns:
-    df["window"] = df["window"].astype("category")
-
-df["group"] = df["group"].cat.set_categories(["control", "experimental"])
-
-for col in [measure, "f", "mean_trial_difficulty", "sequence_nr", "mean_rt", "mean_log_rt"]:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-df = df.dropna(
-    subset=[measure, "f", "group", "id", "ch_name", "mean_trial_difficulty", "sequence_nr", "half"]
-).copy()
-
-# Match final RT script
-df["f_c"] = df["f"] - df["f"].mean()
-df["f_lin"] = df["f_c"]
-df["f_quad"] = df["f_c"] ** 2 - np.mean(df["f_c"] ** 2)
-
-df["mean_trial_difficulty_c"] = (
-    df["mean_trial_difficulty"] - df["mean_trial_difficulty"].mean()
-)
-df["sequence_nr_c"] = df["sequence_nr"] - df["sequence_nr"].mean()
+    fig.savefig(out_file, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
-# -----------------------------------------------------------------------------
-# Electrode list and topomap info
-# -----------------------------------------------------------------------------
-electrodes = sorted(df["ch_name"].unique())
+def prepare_base_dataframe(df_raw: pd.DataFrame, measure: str) -> pd.DataFrame:
+    df = df_raw.copy()
 
-info = mne.create_info(
-    electrodes,
-    sfreq=1000,
-    ch_types="eeg",
-    verbose=None,
-)
-montage = mne.channels.make_standard_montage("standard_1020")
-info.set_montage(montage, on_missing="warn", match_case=False)
+    needed = [measure, "f", "group", "id", "ch_name", "mean_trial_difficulty", "sequence_nr", "half"]
+    df = df.dropna(subset=needed).copy()
 
+    df["f_c"] = df["f"] - df["f"].mean()
+    df["f_lin"] = df["f_c"]
+    df["f_quad"] = df["f_c"] ** 2 - np.mean(df["f_c"] ** 2)
 
-# -----------------------------------------------------------------------------
-# Optional: full-data descriptive beta maps
-# -----------------------------------------------------------------------------
-df_beta_full = fit_electrode_betas(
-    df_long=df,
-    measure=measure,
-    electrodes=electrodes,
-    formula=formula,
-    re_formulas=re_formulas,
-    min_subjects=min_subjects_per_electrode_model,
-    min_obs=min_obs_per_electrode_model,
-)
-
-df_beta_full.to_csv(path_out / f"{measure}_electrode_mlm_betas_full_data.csv", index=False)
-
-terms_to_plot = [t for t in effects if t in df_beta_full["term"].unique()]
-n_terms = len(terms_to_plot)
-
-if n_terms > 0:
-    fig = plt.figure(figsize=(3.5 * n_terms, 4))
-    gs = fig.add_gridspec(1, n_terms + 1, width_ratios=[1] * n_terms + [0.05])
-
-    axes = [fig.add_subplot(gs[0, i]) for i in range(n_terms)]
-    cax = fig.add_subplot(gs[0, n_terms])
-
-    for i, term in enumerate(terms_to_plot):
-        topo = (
-            df_beta_full[df_beta_full["term"] == term]
-            .set_index("electrode")
-            .reindex(electrodes)["beta"]
-            .to_numpy()
-        )
-
-        vmax = np.nanmax(np.abs(topo))
-        if not np.isfinite(vmax) or vmax == 0:
-            vmax = 1.0
-
-        evoked = mne.EvokedArray(
-            topo[:, None],
-            info,
-            tmin=0.0,
-            verbose=False,
-        )
-
-        evoked.plot_topomap(
-            times=[0],
-            axes=axes[i] if i < n_terms - 1 else [axes[i], cax],
-            colorbar=(i == n_terms - 1),
-            cmap="RdBu_r",
-            vlim=(-vmax, vmax),
-            scalings=1,
-            show=False,
-            sphere=None,
-        )
-
-        axes[i].set_title(term)
-
-    fig.suptitle(
-        f"{measure} full-data electrode-wise MLM effect sizes (descriptive)",
-        fontsize=16,
+    df["mean_trial_difficulty_c"] = (
+        df["mean_trial_difficulty"] - df["mean_trial_difficulty"].mean()
     )
-    plt.tight_layout()
-    plt.show()
+    df["sequence_nr_c"] = df["sequence_nr"] - df["sequence_nr"].mean()
+
+    return df
 
 
-# -----------------------------------------------------------------------------
-# Reference map for fold sign alignment
-# -----------------------------------------------------------------------------
-w_ref = build_reference_map(
-    df_beta_full=df_beta_full,
-    electrodes=electrodes,
-    target_effect=target_effect,
-    value_col="t",
-)
-
-
-# -----------------------------------------------------------------------------
-# One LOSO fold
-# -----------------------------------------------------------------------------
 def run_loso_fold(
     held_out,
     df,
@@ -632,8 +592,6 @@ def run_loso_fold(
     target_effect,
     w_ref,
 ):
-    print(f"LOSO fold: hold out subject {held_out}")
-
     subject_as_str = str(held_out)
     df_train = df[df["id"].astype(str) != subject_as_str].copy()
     df_test = df[df["id"].astype(str) == subject_as_str].copy()
@@ -722,141 +680,313 @@ def run_loso_fold(
     }
 
 
-# -----------------------------------------------------------------------------
-# Parallel LOSO
-# -----------------------------------------------------------------------------
-subjects = sorted(df["id"].astype(str).unique())
+def run_one_measure_effect(
+    df_base,
+    measure,
+    target_effect,
+    electrodes,
+    info,
+    out_root,
+    reference_to_use,
+):
+    print("\n" + "=" * 100)
+    print(f"Running measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
 
-fold_results = Parallel(
-    n_jobs=n_jobs_loso,
-    backend=parallel_backend,
-    verbose=parallel_verbose,
-)(
-    delayed(run_loso_fold)(
-        held_out=s,
-        df=df,
+    effect_safe = safe_name(target_effect)
+    combo_dir = out_root / reference_to_use / measure / effect_safe
+    combo_dir.mkdir(parents=True, exist_ok=True)
+
+    # full-data electrode MLM
+    df_beta_full = fit_electrode_betas(
+        df_long=df_base,
         measure=measure,
         electrodes=electrodes,
         formula=formula,
         re_formulas=re_formulas,
-        min_subjects_per_electrode_model=min_subjects_per_electrode_model,
-        min_obs_per_electrode_model=min_obs_per_electrode_model,
-        target_effect=target_effect,
-        w_ref=w_ref,
+        min_subjects=min_subjects_per_electrode_model,
+        min_obs=min_obs_per_electrode_model,
     )
-    for s in subjects
-)
 
-all_scores = []
-all_filters = []
-failed = []
+    df_beta_full.to_csv(combo_dir / f"{measure}_electrode_mlm_betas_full_data.csv", index=False)
 
-for res in fold_results:
-    if res["status"] == "ok":
-        all_scores.append(res["scores"])
-        all_filters.append(res["filter"])
-    else:
-        failed.append({"held_out_subject": res["held_out"], "status": res["status"]})
+    terms_to_plot = [t for t in effects_for_topomaps if t in df_beta_full["term"].unique()]
+    save_full_data_topomap_panel(
+        df_beta_full=df_beta_full,
+        electrodes=electrodes,
+        info=info,
+        terms_to_plot=terms_to_plot,
+        title=f"{measure} full-data electrode-wise MLM effect sizes (descriptive)\nReference: {reference_to_use}",
+        out_file=combo_dir / f"{measure}_full_data_topomaps.png",
+    )
 
-safe_effect_name = safe_name(target_effect)
+    # reference map for sign alignment
+    w_ref = build_reference_map(
+        df_beta_full=df_beta_full,
+        electrodes=electrodes,
+        target_effect=target_effect,
+        value_col="t",
+    )
 
-df_failed = pd.DataFrame(failed)
-df_failed.to_csv(
-    path_out / f"{measure}_loso_failed_folds_{safe_effect_name}.csv",
-    index=False,
-)
+    subjects = sorted(df_base["id"].astype(str).unique())
 
-if len(all_scores) == 0:
-    raise RuntimeError("No LOSO scores were generated.")
+    fold_results = Parallel(
+        n_jobs=n_jobs_loso,
+        backend=parallel_backend,
+        verbose=parallel_verbose,
+    )(
+        delayed(run_loso_fold)(
+            held_out=s,
+            df=df_base,
+            measure=measure,
+            electrodes=electrodes,
+            formula=formula,
+            re_formulas=re_formulas,
+            min_subjects_per_electrode_model=min_subjects_per_electrode_model,
+            min_obs_per_electrode_model=min_obs_per_electrode_model,
+            target_effect=target_effect,
+            w_ref=w_ref,
+        )
+        for s in subjects
+    )
 
-df_scores_loso = pd.concat(all_scores, ignore_index=True)
-df_filters_loso = pd.concat(all_filters, ignore_index=True)
+    all_scores = []
+    all_filters = []
+    failed = []
 
-df_scores_loso.to_csv(
-    path_out / f"{measure}_loso_effect_weighted_scores_{safe_effect_name}.csv",
-    index=False,
-)
-df_filters_loso.to_csv(
-    path_out / f"{measure}_loso_filters_{safe_effect_name}.csv",
-    index=False,
-)
+    for res in fold_results:
+        if res["status"] == "ok":
+            all_scores.append(res["scores"])
+            all_filters.append(res["filter"])
+        else:
+            failed.append({"held_out_subject": res["held_out"], "status": res["status"]})
+
+    df_failed = pd.DataFrame(failed)
+    df_failed.to_csv(combo_dir / f"{measure}_loso_failed_folds_{effect_safe}.csv", index=False)
+
+    if len(all_scores) == 0:
+        print(f"No LOSO scores generated for measure={measure}, effect={target_effect}")
+        return None
+
+    df_scores_loso = pd.concat(all_scores, ignore_index=True)
+    df_filters_loso = pd.concat(all_filters, ignore_index=True)
+
+    df_scores_loso.to_csv(
+        combo_dir / f"{measure}_loso_effect_weighted_scores_{effect_safe}.csv",
+        index=False,
+    )
+    df_filters_loso.to_csv(
+        combo_dir / f"{measure}_loso_filters_{effect_safe}.csv",
+        index=False,
+    )
+
+    # mean LOSO filter topomap
+    df_filter_mean = (
+        df_filters_loso.groupby("electrode", as_index=False)["weight"]
+        .mean()
+        .set_index("electrode")
+        .reindex(electrodes)
+        .reset_index()
+    )
+    w_mean = df_filter_mean["weight"].to_numpy(dtype=float)
+
+    save_topomap(
+        values=w_mean,
+        info=info,
+        title=f"Mean LOSO filter\n{target_effect}\nReference: {reference_to_use}",
+        out_file=combo_dir / f"{measure}_mean_loso_filter_{effect_safe}.png",
+    )
+
+    # final score model
+    df_scores_loso["id"] = df_scores_loso["id"].astype("category")
+    df_scores_loso["group"] = df_scores_loso["group"].astype("category")
+    df_scores_loso["half"] = df_scores_loso["half"].astype("category")
+
+    if "window" in df_scores_loso.columns:
+        df_scores_loso["window"] = df_scores_loso["window"].astype("category")
+
+    df_scores_loso["group"] = df_scores_loso["group"].cat.set_categories(["control", "experimental"])
+
+    for col in [
+        "f",
+        "f_c",
+        "f_lin",
+        "f_quad",
+        "mean_trial_difficulty",
+        "mean_trial_difficulty_c",
+        "sequence_nr",
+        "sequence_nr_c",
+        "mean_rt",
+        "mean_log_rt",
+        "EW_score",
+    ]:
+        if col in df_scores_loso.columns:
+            df_scores_loso[col] = pd.to_numeric(df_scores_loso[col], errors="coerce")
+
+    fit, used_re, dsub, df_final = run_final_score_model(
+        df_scores=df_scores_loso,
+        formula=formula,
+        re_formulas=re_formulas,
+    )
+
+    df_final["successful_loso_folds"] = len(all_scores)
+    df_final["total_subjects"] = len(subjects)
+    df_final["measure"] = measure
+    df_final["target_effect"] = target_effect
+    df_final["reference"] = reference_to_use
+
+    df_final.to_csv(
+        combo_dir / f"{measure}_loso_effect_weighted_final_mlm_{effect_safe}.csv",
+        index=False,
+    )
+
+    # save model summary as text
+    with open(combo_dir / f"{measure}_loso_effect_weighted_final_mlm_{effect_safe}.txt", "w") as f:
+        f.write("Final LOSO effect-weighted score model\n")
+        f.write(f"Measure: {measure}\n")
+        f.write(f"Reference: {reference_to_use}\n")
+        f.write(f"Target effect used to derive filters: {target_effect}\n")
+        f.write(f"Random-effects structure: {used_re}\n")
+        f.write(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}\n\n")
+        f.write(str(fit.summary()))
+
+    # score curve plot
+    plot_score_model_curves_with_counts(
+        df_model=dsub,
+        fit=fit,
+        outcome_name=f"{measure}_EW_score",
+        out_file=combo_dir / f"{measure}_score_curves_{effect_safe}.png",
+        n_bins=n_bins_plot,
+    )
+
+    print(f"Completed measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
+    print(f"Random-effects structure: {used_re}")
+    print(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}")
+
+    return df_final.copy()
 
 
 # -----------------------------------------------------------------------------
-# Plot mean LOSO filter
+# Load raw data once
 # -----------------------------------------------------------------------------
-df_filter_mean = (
-    df_filters_loso.groupby("electrode", as_index=False)["weight"]
-    .mean()
-    .set_index("electrode")
-    .reindex(electrodes)
-    .reset_index()
-)
+df_raw = pd.read_csv(file_in)
 
-w_mean = df_filter_mean["weight"].to_numpy(dtype=float)
-plot_topomap_from_vector(
-    values=w_mean,
-    info=info,
-    title=f"Mean LOSO filter\n{target_effect}",
-)
+df_raw["id"] = df_raw["id"].astype("category")
+df_raw["group"] = df_raw["group"].astype("category")
+df_raw["ch_name"] = df_raw["ch_name"].astype("category")
+df_raw["half"] = df_raw["half"].astype("category")
 
+if "window" in df_raw.columns:
+    df_raw["window"] = df_raw["window"].astype("category")
 
-# -----------------------------------------------------------------------------
-# Final MLM on cross-validated scores
-# -----------------------------------------------------------------------------
-df_scores_loso["id"] = df_scores_loso["id"].astype("category")
-df_scores_loso["group"] = df_scores_loso["group"].astype("category")
-df_scores_loso["half"] = df_scores_loso["half"].astype("category")
+if "reference" not in df_raw.columns:
+    raise RuntimeError("Input file does not contain a 'reference' column.")
 
-if "window" in df_scores_loso.columns:
-    df_scores_loso["window"] = df_scores_loso["window"].astype("category")
-
-df_scores_loso["group"] = df_scores_loso["group"].cat.set_categories(["control", "experimental"])
+df_raw["reference"] = df_raw["reference"].astype("category")
+df_raw["group"] = df_raw["group"].cat.set_categories(["control", "experimental"])
 
 for col in [
     "f",
-    "f_c",
-    "f_lin",
-    "f_quad",
     "mean_trial_difficulty",
-    "mean_trial_difficulty_c",
     "sequence_nr",
-    "sequence_nr_c",
     "mean_rt",
     "mean_log_rt",
-    "EW_score",
-]:
-    if col in df_scores_loso.columns:
-        df_scores_loso[col] = pd.to_numeric(df_scores_loso[col], errors="coerce")
+] + measures:
+    if col in df_raw.columns:
+        df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce")
 
-fit, used_re, dsub, df_final = run_final_score_model(
-    df_scores=df_scores_loso,
-    formula=formula,
-    re_formulas=re_formulas,
-)
+df_raw = df_raw[df_raw["reference"] == reference_to_use].copy()
 
-df_final["successful_loso_folds"] = len(all_scores)
-df_final["total_subjects"] = len(subjects)
+if len(df_raw) == 0:
+    raise RuntimeError(f"No rows found for reference = {reference_to_use}")
 
-print("\nFinal LOSO effect-weighted score model")
-print(f"Measure: {measure}")
-print(f"Target effect used to derive filters: {target_effect}")
-print(f"Random-effects structure: {used_re}")
-print(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}")
-print(fit.summary())
-
-df_final.to_csv(
-    path_out / f"{measure}_loso_effect_weighted_final_mlm_{safe_effect_name}.csv",
-    index=False,
-)
 
 # -----------------------------------------------------------------------------
-# Plot final LOSO score model like RT plot
+# Electrode list and topomap info
 # -----------------------------------------------------------------------------
-plot_score_model_curves_with_counts(
-    df_model=dsub,
-    fit=fit,
-    outcome_name=f"{measure}_EW_score",
-    n_bins=9,
-    path_out=path_out,
+electrodes = sorted(df_raw["ch_name"].dropna().unique())
+
+info = mne.create_info(
+    electrodes,
+    sfreq=1000,
+    ch_types="eeg",
+    verbose=None,
 )
+montage = mne.channels.make_standard_montage("standard_1020")
+info.set_montage(montage, on_missing="warn", match_case=False)
+
+
+# -----------------------------------------------------------------------------
+# Run all measure/effect combinations
+# -----------------------------------------------------------------------------
+all_final_results = []
+
+for measure in measures:
+    print("\n" + "#" * 100)
+    print(f"Preparing base dataframe for measure={measure}, reference={reference_to_use}")
+
+    df_base = prepare_base_dataframe(df_raw, measure=measure)
+
+    for target_effect in target_effects:
+        try:
+            df_final_this = run_one_measure_effect(
+                df_base=df_base,
+                measure=measure,
+                target_effect=target_effect,
+                electrodes=electrodes,
+                info=info,
+                out_root=path_out,
+                reference_to_use=reference_to_use,
+            )
+
+            if df_final_this is not None:
+                all_final_results.append(df_final_this)
+
+        except Exception as exc:
+            print(f"FAILED: measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
+            print(str(exc))
+
+            fail_row = pd.DataFrame(
+                {
+                    "measure": [measure],
+                    "target_effect": [target_effect],
+                    "reference": [reference_to_use],
+                    "term": ["RUN_FAILED"],
+                    "beta": [np.nan],
+                    "se": [np.nan],
+                    "t": [np.nan],
+                    "p": [np.nan],
+                    "random_effects": [np.nan],
+                    "n_subjects": [np.nan],
+                    "n_obs": [np.nan],
+                    "llf": [np.nan],
+                    "aic": [np.nan],
+                    "bic": [np.nan],
+                    "successful_loso_folds": [np.nan],
+                    "total_subjects": [np.nan],
+                }
+            )
+            all_final_results.append(fail_row)
+
+
+# -----------------------------------------------------------------------------
+# Save master summary dataframe
+# -----------------------------------------------------------------------------
+if len(all_final_results) > 0:
+    df_master = pd.concat(all_final_results, ignore_index=True)
+    df_master.to_csv(
+        path_out / f"batch_loso_master_results_{reference_to_use}.csv",
+        index=False,
+    )
+
+    mask_target = df_master["term"] == df_master["target_effect"]
+    df_target_only = df_master[mask_target].copy()
+    df_target_only.to_csv(
+        path_out / f"batch_loso_target_term_results_{reference_to_use}.csv",
+        index=False,
+    )
+
+    print("\nSaved:")
+    print(path_out / f"batch_loso_master_results_{reference_to_use}.csv")
+    print(path_out / f"batch_loso_target_term_results_{reference_to_use}.csv")
+else:
+    print("No results to save.")

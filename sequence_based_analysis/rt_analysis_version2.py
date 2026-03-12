@@ -1,5 +1,6 @@
 # -----------------------------------------------------------------------------
 # Mixed models for sequence-level RT + model prediction plots with binned data
+# Includes sequence_nr_c as a fixed-effect covariate
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -29,17 +30,17 @@ run_secondary_model = True
 
 n_bins = 9
 
-trim_extremes = True
+trim_extremes = False
 trim_quantile = 0.95
 
 formula = """
-score ~ group * f + group * f2
-        + mean_trial_difficulty + half
+score ~ group * f_lin + group * f_quad
+        + mean_trial_difficulty_c + half + sequence_nr_c
 """
 
 re_formulas = [
-    "1 + f + f2",
-    "1 + f",
+    "1 + f_lin + f_quad",
+    "1 + f_lin",
     "1",
 ]
 
@@ -57,34 +58,28 @@ def plot_feedback_curves_with_counts(
     d = df_model.copy()
     group_order = ["control", "experimental"]
 
-   # fixed-width bins across the observed feedback range
+    # fixed-width bins across the observed feedback range
     edges = np.linspace(d["f"].min(), d["f"].max(), n_bins + 1)
     d["f_bin"] = pd.cut(d["f"], bins=edges, include_lowest=True)
-    
-    # bin midpoints
-    midpoint_map = {
-        interval: (interval.left + interval.right) / 2
-        for interval in d["f_bin"].cat.categories
-    }
-    d["f_mid"] = d["f_bin"].map(midpoint_map).astype(float)
-    
+
     # observed means by group x bin
     agg = (
-        d.groupby(["group", "f_bin", "f_mid"], observed=True)
+        d.groupby(["group", "f_bin"], observed=True)
         .agg(
             mean_score=("score", "mean"),
             sem_score=("score", "sem"),
             n=("score", "size"),
         )
         .reset_index()
-        .sort_values(["group", "f_mid"])
     )
-    
-    agg["f_mid"] = agg["f_mid"].astype(float)
+
+    agg["f_mid"] = agg["f_bin"].apply(lambda iv: (iv.left + iv.right) / 2).astype(float)
+    agg = agg.sort_values(["group", "f_mid"]).reset_index(drop=True)
 
     # smooth model predictions
     f_grid = np.linspace(d["f"].min(), d["f"].max(), 300)
-    difficulty_ref = float(d["mean_trial_difficulty"].mean())
+    difficulty_ref = 0.0      # centered predictor
+    sequence_ref = 0.0        # centered predictor
     half_ref = d["half"].mode().iloc[0]
 
     pred_rows = []
@@ -93,10 +88,11 @@ def plot_feedback_curves_with_counts(
             pred_rows.append(
                 {
                     "group": group_name,
-                    "f": f_val,
-                    "f2": f_val ** 2,
-                    "mean_trial_difficulty": difficulty_ref,
+                    "f_lin": f_val,
+                    "f_quad": f_val**2 - np.mean(d["f"]**2),
+                    "mean_trial_difficulty_c": difficulty_ref,
                     "half": half_ref,
+                    "sequence_nr_c": sequence_ref,
                 }
             )
 
@@ -107,26 +103,24 @@ def plot_feedback_curves_with_counts(
         "control": "#1f77b4",
         "experimental": "#d62728",
     }
-    
+
     fig, axes = plt.subplots(
         2, 1,
         figsize=(8, 8),
         gridspec_kw={"height_ratios": [4, 1]},
         sharex=True,
     )
-    
+
     # -------------------------
     # Top panel: curves + bins
     # -------------------------
     ax = axes[0]
-    
+
     for group_name in group_order:
-    
         dg = agg[agg["group"] == group_name].copy()
         dg_pred = pred[pred["group"] == group_name].copy()
-    
         color = group_colors[group_name]
-    
+
         ax.errorbar(
             dg["f_mid"],
             dg["mean_score"],
@@ -137,34 +131,32 @@ def plot_feedback_curves_with_counts(
             color=color,
             label=f"{group_name} observed",
         )
-    
+
         ax.plot(
-            dg_pred["f"],
+            dg_pred["f_lin"],
             dg_pred["pred"],
             linewidth=3,
             color=color,
             label=f"{group_name} model",
         )
-    
+
     ax.axvline(0, color="k", linestyle="--", linewidth=1.2)
-    ax.set_ylabel("RT (ms)")
+    ax.set_ylabel("RT (ms)" if outcome_name == "mean_rt" else outcome_name)
     ax.set_title(f"{outcome_name}: observed bin means and model curves")
     ax.grid(True, alpha=0.3)
     ax.legend()
-    
-    
+
     # -------------------------
     # Bottom panel: counts
     # -------------------------
     ax2 = axes[1]
     width = np.diff(edges).mean() * 0.4
-    
+
     for group_name in group_order:
-    
         dg = agg[agg["group"] == group_name].copy()
         offset = -width / 2 if group_name == "control" else width / 2
         color = group_colors[group_name]
-    
+
         ax2.bar(
             dg["f_mid"] + offset,
             dg["n"],
@@ -173,12 +165,12 @@ def plot_feedback_curves_with_counts(
             alpha=0.6,
             label=group_name,
         )
-    
+
     ax2.axvline(0, color="k", linestyle="--", linewidth=1.2)
     ax2.set_xlabel("Signed feedback (f)")
     ax2.set_ylabel("n")
     ax2.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
 
     if path_out is not None:
@@ -237,6 +229,7 @@ df_seq = df_seq.dropna(
     subset=[
         "id",
         "group",
+        "sequence_nr",
         "half",
         "f",
         "f2",
@@ -249,11 +242,17 @@ df_seq = df_seq.dropna(
 df_seq = df_seq[df_seq["mean_rt"] > 0].copy()
 df_seq = df_seq[np.isfinite(df_seq["mean_log_rt"])].copy()
 
-# Mean center difficulty and sequence number
+# centered predictors
 df_seq["sequence_nr_c"] = df_seq["sequence_nr"] - df_seq["sequence_nr"].mean()
 df_seq["mean_trial_difficulty_c"] = (
     df_seq["mean_trial_difficulty"] - df_seq["mean_trial_difficulty"].mean()
 )
+
+# orthogonal polynomial representation of feedback
+f_center = df_seq["f"] - df_seq["f"].mean()
+
+df_seq["f_lin"] = f_center
+df_seq["f_quad"] = f_center**2 - np.mean(f_center**2)
 
 # optional trimming of extreme |f| values
 if trim_extremes:
@@ -309,8 +308,18 @@ def fit_mixedlm_with_fallback(df_model, formula, re_formulas):
 def run_rt_model(df_seq, outcome_name, formula, re_formulas, path_out):
     d = df_seq.copy()
     d = d.dropna(
-        subset=[outcome_name, "group", "id", "f", "f2", "mean_trial_difficulty_c", "half"]
+        subset=[
+            outcome_name,
+            "group",
+            "id",
+            "f",
+            "f2",
+            "mean_trial_difficulty_c",
+            "half",
+            "sequence_nr_c",
+        ]
     ).copy()
+
     d = d.rename(columns={outcome_name: "score"})
 
     fit, used_re, fit_error_log = fit_mixedlm_with_fallback(d, formula, re_formulas)
