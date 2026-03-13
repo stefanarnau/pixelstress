@@ -1,6 +1,5 @@
 # -----------------------------------------------------------------------------
 # Mixed models for sequence-level RT + model prediction plots with binned data
-# Includes sequence_nr_c as a fixed-effect covariate
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -18,7 +17,7 @@ path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
 path_out = Path("/mnt/data_dump/pixelstress/7_rt_models/")
 path_out.mkdir(parents=True, exist_ok=True)
 
-file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long.csv"
+file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_with_reference.csv"
 
 
 # -----------------------------------------------------------------------------
@@ -35,7 +34,7 @@ trim_quantile = 0.95
 
 formula = """
 score ~ group * f_lin + group * f_quad
-        + mean_trial_difficulty_c + half + sequence_nr_c
+        + mean_trial_difficulty_c + half
 """
 
 re_formulas = [
@@ -79,7 +78,6 @@ def plot_feedback_curves_with_counts(
     # smooth model predictions
     f_grid = np.linspace(d["f"].min(), d["f"].max(), 300)
     difficulty_ref = 0.0      # centered predictor
-    sequence_ref = 0.0        # centered predictor
     half_ref = d["half"].mode().iloc[0]
 
     pred_rows = []
@@ -92,7 +90,6 @@ def plot_feedback_curves_with_counts(
                     "f_quad": f_val**2 - np.mean(d["f"]**2),
                     "mean_trial_difficulty_c": difficulty_ref,
                     "half": half_ref,
-                    "sequence_nr_c": sequence_ref,
                 }
             )
 
@@ -198,7 +195,7 @@ if "window" in df.columns:
 
 df["group"] = df["group"].cat.set_categories(["control", "experimental"])
 
-for col in ["f", "f2", "mean_trial_difficulty", "mean_rt", "mean_log_rt", "sequence_nr"]:
+for col in ["f", "f2", "mean_trial_difficulty", "mean_rt", "mean_log_rt"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -210,7 +207,6 @@ key_cols = [
     "id",
     "group",
     "block_nr",
-    "sequence_nr",
     "half",
     "n_trials",
     "mean_trial_difficulty",
@@ -229,7 +225,6 @@ df_seq = df_seq.dropna(
     subset=[
         "id",
         "group",
-        "sequence_nr",
         "half",
         "f",
         "f2",
@@ -242,8 +237,7 @@ df_seq = df_seq.dropna(
 df_seq = df_seq[df_seq["mean_rt"] > 0].copy()
 df_seq = df_seq[np.isfinite(df_seq["mean_log_rt"])].copy()
 
-# centered predictors
-df_seq["sequence_nr_c"] = df_seq["sequence_nr"] - df_seq["sequence_nr"].mean()
+# center predictors
 df_seq["mean_trial_difficulty_c"] = (
     df_seq["mean_trial_difficulty"] - df_seq["mean_trial_difficulty"].mean()
 )
@@ -316,7 +310,6 @@ def run_rt_model(df_seq, outcome_name, formula, re_formulas, path_out):
             "f2",
             "mean_trial_difficulty_c",
             "half",
-            "sequence_nr_c",
         ]
     ).copy()
 

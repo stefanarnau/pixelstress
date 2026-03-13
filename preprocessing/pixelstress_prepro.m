@@ -83,6 +83,8 @@ subject_list = {'9_1',...
                 '98_2'
                };
 
+subject_list = {'18_2'};
+
 % Failed:
 % '18_2' something with ICA
 % '49_2' trialcounts off

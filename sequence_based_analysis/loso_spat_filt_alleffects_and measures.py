@@ -1,12 +1,11 @@
 # -----------------------------------------------------------------------------
 # Batch LOSO effect-weighted spatial filtering + final MLM
-# Loops over EEG measures and target effects
-# Matches final RT script:
-#   - centered difficulty
-#   - centered sequence number
-#   - orthogonalized feedback terms: f_lin, f_quad
-#   - sign alignment of fold filters to full-sample reference map
-#   - selects one reference method from input file
+# - reads CSD-only sequence dataframe
+# - applies sequence-level FOOOF QC after loading
+# - complete-sequence restriction: keep only sequences with all electrodes present
+# - minimum retained complete sequences per subject
+# - LOSO effect-weighted spatial filtering
+# - final MLM on out-of-fold component scores
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -26,33 +25,26 @@ path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
 path_out = Path("/mnt/data_dump/pixelstress/6_batch_loso_effect_weighted/")
 path_out.mkdir(parents=True, exist_ok=True)
 
-file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_with_reference.csv"
+file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_csd.csv"
 
 
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-reference_to_use = "CSD"   # "CAR" or "CSD"
-
 measures = [
-    "exponent",
+    # "exponent",
     "theta_flat",
-    "alpha_flat",
-    "beta_flat",
+    # "alpha_flat",
+    # "beta_flat",
 ]
 
 target_effects = [
-    "group[T.experimental]",
-    "f_lin",
-    "f_quad",
-    "group[T.experimental]:f_lin",
+    #"group[T.experimental]",
+    #"f_lin",
+    #"f_quad",
+    #"group[T.experimental]:f_lin",
     "group[T.experimental]:f_quad",
 ]
-
-#formula = """
-#score ~ group * f_lin + group * f_quad
-#        + mean_trial_difficulty_c + half + sequence_nr_c
-#"""
 
 formula = """
 score ~ group * f_lin + group * f_quad
@@ -73,16 +65,28 @@ effects_for_topomaps = [
     "group[T.experimental]:f_quad",
     "half[T.second]",
     "mean_trial_difficulty_c",
-    "sequence_nr_c",
 ]
 
+# Electrode-wise model requirements
 min_subjects_per_electrode_model = 8
 min_obs_per_electrode_model = 50
 
+# Subject retention
+min_sequences_per_subject = 8
+
+# Sequence-level FOOOF QC applied AFTER loading
+apply_sequence_qc = True
+qc_min_r2 = 0.80
+qc_max_error = 0.30
+qc_min_exponent = 0.50
+qc_max_exponent = 3.50
+
+# LOSO
 n_jobs_loso = -1
 parallel_backend = "loky"
 parallel_verbose = 10
 
+# Plotting
 n_bins_plot = 9
 
 
@@ -94,7 +98,6 @@ BASE_SEQ_COLS = [
     "group",
     "block_nr",
     "sequence_nr",
-    "sequence_nr_c",
     "half",
     "n_trials",
     "mean_trial_difficulty",
@@ -114,7 +117,6 @@ FINAL_MODEL_REQUIRED_COLS = [
     "f_quad",
     "mean_trial_difficulty_c",
     "half",
-    "sequence_nr_c",
 ]
 
 
@@ -127,6 +129,10 @@ def safe_name(text: str) -> str:
 
 def get_sequence_key_cols(df_in: pd.DataFrame) -> list[str]:
     return (["window"] if "window" in df_in.columns else []) + BASE_SEQ_COLS
+
+
+def get_seq_id_cols(df_in: pd.DataFrame) -> list[str]:
+    return (["window"] if "window" in df_in.columns else []) + ["id", "block_nr", "sequence_nr"]
 
 
 def fit_mixedlm_with_fallback(
@@ -302,7 +308,7 @@ def build_reference_map(
     df_beta_full: pd.DataFrame,
     electrodes: list[str],
     target_effect: str,
-    value_col: str = "t",
+    value_col: str = "beta",
 ):
     if df_beta_full.empty or target_effect not in df_beta_full["term"].unique():
         return None
@@ -323,10 +329,7 @@ def build_reference_map(
     return w_ref / norm
 
 
-def align_filter_to_reference(
-    w: np.ndarray,
-    w_ref: np.ndarray | None,
-):
+def align_filter_to_reference(w: np.ndarray, w_ref: np.ndarray | None):
     if w_ref is None:
         return w
 
@@ -341,12 +344,7 @@ def align_filter_to_reference(
     return w
 
 
-def save_topomap(
-    values: np.ndarray,
-    info: mne.Info,
-    title: str,
-    out_file: Path,
-):
+def save_topomap(values: np.ndarray, info: mne.Info, title: str, out_file: Path):
     vmax = np.nanmax(np.abs(values))
     if not np.isfinite(vmax) or vmax == 0:
         vmax = 1.0
@@ -356,12 +354,7 @@ def save_topomap(
     ax = fig.add_subplot(gs[0, 0])
     cax = fig.add_subplot(gs[0, 1])
 
-    evoked = mne.EvokedArray(
-        values[:, None],
-        info,
-        tmin=0.0,
-        verbose=False,
-    )
+    evoked = mne.EvokedArray(values[:, None], info, tmin=0.0, verbose=False)
 
     evoked.plot_topomap(
         times=[0],
@@ -411,12 +404,7 @@ def save_full_data_topomap_panel(
         if not np.isfinite(vmax) or vmax == 0:
             vmax = 1.0
 
-        evoked = mne.EvokedArray(
-            topo[:, None],
-            info,
-            tmin=0.0,
-            verbose=False,
-        )
+        evoked = mne.EvokedArray(topo[:, None], info, tmin=0.0, verbose=False)
 
         evoked.plot_topomap(
             times=[0],
@@ -464,14 +452,12 @@ def plot_score_model_curves_with_counts(
     agg = agg.sort_values(["group", "f_mid"]).reset_index(drop=True)
 
     f_grid = np.linspace(d["f"].min(), d["f"].max(), 300)
-
     f_mean = float(d["f"].mean())
     f_c_grid = f_grid - f_mean
     f_quad_center = float(np.mean((d["f"] - f_mean) ** 2))
 
     half_ref = d["half"].mode().iloc[0]
     difficulty_ref = 0.0
-    sequence_ref = 0.0
 
     pred_rows = []
     for group_name in group_order:
@@ -485,17 +471,13 @@ def plot_score_model_curves_with_counts(
                     "f_quad": (f_c_val ** 2) - f_quad_center,
                     "mean_trial_difficulty_c": difficulty_ref,
                     "half": half_ref,
-                    "sequence_nr_c": sequence_ref,
                 }
             )
 
     pred = pd.DataFrame(pred_rows)
     pred["pred"] = fit.predict(pred)
 
-    group_colors = {
-        "control": "#1f77b4",
-        "experimental": "#d62728",
-    }
+    group_colors = {"control": "#1f77b4", "experimental": "#d62728"}
 
     fig, axes = plt.subplots(
         2, 1,
@@ -505,7 +487,6 @@ def plot_score_model_curves_with_counts(
     )
 
     ax = axes[0]
-
     for group_name in group_order:
         dg = agg[agg["group"] == group_name].copy()
         dg_pred = pred[pred["group"] == group_name].copy()
@@ -565,7 +546,7 @@ def plot_score_model_curves_with_counts(
 def prepare_base_dataframe(df_raw: pd.DataFrame, measure: str) -> pd.DataFrame:
     df = df_raw.copy()
 
-    needed = [measure, "f", "group", "id", "ch_name", "mean_trial_difficulty", "sequence_nr", "half"]
+    needed = [measure, "f", "group", "id", "ch_name", "mean_trial_difficulty", "half"]
     df = df.dropna(subset=needed).copy()
 
     df["f_c"] = df["f"] - df["f"].mean()
@@ -575,9 +556,195 @@ def prepare_base_dataframe(df_raw: pd.DataFrame, measure: str) -> pd.DataFrame:
     df["mean_trial_difficulty_c"] = (
         df["mean_trial_difficulty"] - df["mean_trial_difficulty"].mean()
     )
-    df["sequence_nr_c"] = df["sequence_nr"] - df["sequence_nr"].mean()
 
     return df
+
+
+def compute_filter_stability(df_filters_loso: pd.DataFrame, electrodes: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if df_filters_loso.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    filt_wide = (
+        df_filters_loso.pivot(index="held_out_subject", columns="electrode", values="weight")
+        .reindex(columns=electrodes)
+        .sort_index()
+    )
+
+    subjects = filt_wide.index.tolist()
+    X = filt_wide.to_numpy(dtype=float)
+
+    pair_rows = []
+    for i in range(len(subjects)):
+        for j in range(i + 1, len(subjects)):
+            xi = X[i, :]
+            xj = X[j, :]
+            valid = np.isfinite(xi) & np.isfinite(xj)
+
+            if valid.sum() <= 1:
+                r = np.nan
+            else:
+                r = np.corrcoef(xi[valid], xj[valid])[0, 1]
+
+            pair_rows.append(
+                {
+                    "held_out_subject_1": subjects[i],
+                    "held_out_subject_2": subjects[j],
+                    "r": r,
+                }
+            )
+
+    df_pairwise = pd.DataFrame(pair_rows)
+
+    w_mean = np.nanmean(X, axis=0)
+    mean_norm = np.linalg.norm(np.nan_to_num(w_mean, nan=0.0))
+    if mean_norm > 0:
+        w_mean = w_mean / mean_norm
+
+    corr_to_mean = []
+    for i, subj in enumerate(subjects):
+        xi = X[i, :]
+        valid = np.isfinite(xi) & np.isfinite(w_mean)
+        if valid.sum() <= 1:
+            r = np.nan
+        else:
+            r = np.corrcoef(xi[valid], w_mean[valid])[0, 1]
+        corr_to_mean.append({"held_out_subject": subj, "r_to_mean": r})
+
+    df_to_mean = pd.DataFrame(corr_to_mean)
+
+    df_summary = pd.DataFrame(
+        {
+            "n_successful_folds": [len(subjects)],
+            "mean_pairwise_r": [df_pairwise["r"].mean(skipna=True)],
+            "median_pairwise_r": [df_pairwise["r"].median(skipna=True)],
+            "min_pairwise_r": [df_pairwise["r"].min(skipna=True)],
+            "max_pairwise_r": [df_pairwise["r"].max(skipna=True)],
+            "sd_pairwise_r": [df_pairwise["r"].std(skipna=True)],
+            "mean_r_to_mean_filter": [df_to_mean["r_to_mean"].mean(skipna=True)],
+            "median_r_to_mean_filter": [df_to_mean["r_to_mean"].median(skipna=True)],
+            "sd_r_to_mean_filter": [df_to_mean["r_to_mean"].std(skipna=True)],
+        }
+    )
+
+    return df_pairwise, df_summary
+
+
+def apply_sequence_level_qc(
+    df_long: pd.DataFrame,
+    min_r2: float,
+    max_error: float,
+    min_exponent: float,
+    max_exponent: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seq_cols = get_seq_id_cols(df_long)
+    qc_mask = (
+        df_long["r2"].ge(min_r2)
+        & df_long["error"].le(max_error)
+        & df_long["exponent"].between(min_exponent, max_exponent)
+    )
+
+    df_qc = df_long.loc[qc_mask].copy()
+
+    seq_before = (
+        df_long.groupby(seq_cols, observed=True)
+        .agg(n_rows_before=("ch_name", "size"),
+             n_electrodes_before=("ch_name", "nunique"))
+        .reset_index()
+    )
+
+    seq_after = (
+        df_qc.groupby(seq_cols, observed=True)
+        .agg(n_rows_after=("ch_name", "size"),
+             n_electrodes_after=("ch_name", "nunique"))
+        .reset_index()
+    )
+
+    seq_summary = seq_before.merge(seq_after, on=seq_cols, how="left")
+    seq_summary["n_rows_after"] = seq_summary["n_rows_after"].fillna(0).astype(int)
+    seq_summary["n_electrodes_after"] = seq_summary["n_electrodes_after"].fillna(0).astype(int)
+    seq_summary["n_rows_dropped_qc"] = seq_summary["n_rows_before"] - seq_summary["n_rows_after"]
+
+    return df_qc, seq_summary
+
+
+def summarize_and_filter_complete_sequences(
+    df_long: pd.DataFrame,
+    expected_electrodes: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    expected_n_electrodes = len(expected_electrodes)
+    seq_cols = get_seq_id_cols(df_long)
+
+    df_seq_counts = (
+        df_long.groupby(seq_cols, observed=True)
+        .agg(
+            group=("group", "first"),
+            half=("half", "first"),
+            n_electrodes_present=("ch_name", "nunique"),
+            n_rows=("ch_name", "size"),
+        )
+        .reset_index()
+    )
+
+    df_seq_counts["is_complete_sequence"] = (
+        df_seq_counts["n_electrodes_present"] == expected_n_electrodes
+    )
+
+    df_summary = (
+        df_seq_counts.groupby("id", observed=True)
+        .agg(
+            group=("group", "first"),
+            n_sequences_total=("is_complete_sequence", "size"),
+            n_sequences_complete=("is_complete_sequence", "sum"),
+            mean_electrodes_present=("n_electrodes_present", "mean"),
+            min_electrodes_present=("n_electrodes_present", "min"),
+            max_electrodes_present=("n_electrodes_present", "max"),
+        )
+        .reset_index()
+    )
+
+    df_summary["n_sequences_dropped_incomplete"] = (
+        df_summary["n_sequences_total"] - df_summary["n_sequences_complete"]
+    )
+    df_summary["prop_sequences_complete"] = (
+        df_summary["n_sequences_complete"] / df_summary["n_sequences_total"]
+    )
+    df_summary["expected_n_electrodes"] = expected_n_electrodes
+
+    df_complete_keys = df_seq_counts.loc[df_seq_counts["is_complete_sequence"], seq_cols].copy()
+    df_filtered = df_long.merge(df_complete_keys, on=seq_cols, how="inner").copy()
+
+    return df_filtered, df_summary
+
+
+def summarize_and_filter_subjects_by_sequence_count(
+    df_long: pd.DataFrame,
+    min_sequences: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    seq_cols = get_seq_id_cols(df_long)
+
+    df_seq_counts = (
+        df_long[seq_cols]
+        .drop_duplicates()
+        .groupby("id", observed=True)
+        .size()
+        .rename("n_complete_sequences")
+        .reset_index()
+    )
+
+    df_group = (
+        df_long.groupby("id", observed=True)
+        .agg(group=("group", "first"))
+        .reset_index()
+    )
+
+    df_summary = df_group.merge(df_seq_counts, on="id", how="left")
+    df_summary["n_complete_sequences"] = df_summary["n_complete_sequences"].fillna(0).astype(int)
+    df_summary["keep_subject"] = df_summary["n_complete_sequences"] >= min_sequences
+
+    keep_ids = df_summary.loc[df_summary["keep_subject"], "id"]
+    df_filtered = df_long[df_long["id"].isin(keep_ids)].copy()
+
+    return df_filtered, df_summary
 
 
 def run_loso_fold(
@@ -617,7 +784,7 @@ def run_loso_fold(
     w = (
         df_beta_train[df_beta_train["term"] == target_effect]
         .set_index("electrode")
-        .reindex(electrodes)["t"]
+        .reindex(electrodes)["beta"]
         .to_numpy(dtype=float)
     )
 
@@ -643,11 +810,25 @@ def run_loso_fold(
     w = w / norm
     w = align_filter_to_reference(w=w, w_ref=w_ref)
 
+    _, _, X_train = build_sequence_wide(
+        df_long=df_train,
+        measure=measure,
+        electrodes=electrodes,
+    )
+
     _, seq_meta_test, X_test = build_sequence_wide(
         df_long=df_test,
         measure=measure,
         electrodes=electrodes,
     )
+
+    if X_train is None:
+        return {
+            "held_out": held_out,
+            "scores": None,
+            "filter": None,
+            "status": "no complete training sequence rows",
+        }
 
     if X_test is None:
         return {
@@ -657,7 +838,8 @@ def run_loso_fold(
             "status": "no complete held-out sequence rows",
         }
 
-    X_test_c = X_test - X_test.mean(axis=0)
+    train_means = np.nanmean(X_train, axis=0)
+    X_test_c = X_test - train_means[None, :]
     score_test = X_test_c @ w
 
     df_scores_fold = seq_meta_test.copy()
@@ -687,16 +869,14 @@ def run_one_measure_effect(
     electrodes,
     info,
     out_root,
-    reference_to_use,
 ):
     print("\n" + "=" * 100)
-    print(f"Running measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
+    print(f"Running measure={measure}, target_effect={target_effect}")
 
     effect_safe = safe_name(target_effect)
-    combo_dir = out_root / reference_to_use / measure / effect_safe
+    combo_dir = out_root / measure / effect_safe
     combo_dir.mkdir(parents=True, exist_ok=True)
 
-    # full-data electrode MLM
     df_beta_full = fit_electrode_betas(
         df_long=df_base,
         measure=measure,
@@ -715,16 +895,15 @@ def run_one_measure_effect(
         electrodes=electrodes,
         info=info,
         terms_to_plot=terms_to_plot,
-        title=f"{measure} full-data electrode-wise MLM effect sizes (descriptive)\nReference: {reference_to_use}",
+        title=f"{measure} full-data electrode-wise MLM effect sizes (descriptive)",
         out_file=combo_dir / f"{measure}_full_data_topomaps.png",
     )
 
-    # reference map for sign alignment
     w_ref = build_reference_map(
         df_beta_full=df_beta_full,
         electrodes=electrodes,
         target_effect=target_effect,
-        value_col="t",
+        value_col="beta",
     )
 
     subjects = sorted(df_base["id"].astype(str).unique())
@@ -779,7 +958,22 @@ def run_one_measure_effect(
         index=False,
     )
 
-    # mean LOSO filter topomap
+    df_stability_pairwise, df_stability_summary = compute_filter_stability(
+        df_filters_loso=df_filters_loso,
+        electrodes=electrodes,
+    )
+
+    df_stability_pairwise.to_csv(
+        combo_dir / f"{measure}_loso_filter_stability_pairwise_{effect_safe}.csv",
+        index=False,
+    )
+    df_stability_summary["measure"] = measure
+    df_stability_summary["target_effect"] = target_effect
+    df_stability_summary.to_csv(
+        combo_dir / f"{measure}_loso_filter_stability_summary_{effect_safe}.csv",
+        index=False,
+    )
+
     df_filter_mean = (
         df_filters_loso.groupby("electrode", as_index=False)["weight"]
         .mean()
@@ -792,11 +986,10 @@ def run_one_measure_effect(
     save_topomap(
         values=w_mean,
         info=info,
-        title=f"Mean LOSO filter\n{target_effect}\nReference: {reference_to_use}",
+        title=f"Mean LOSO filter\n{target_effect}",
         out_file=combo_dir / f"{measure}_mean_loso_filter_{effect_safe}.png",
     )
 
-    # final score model
     df_scores_loso["id"] = df_scores_loso["id"].astype("category")
     df_scores_loso["group"] = df_scores_loso["group"].astype("category")
     df_scores_loso["half"] = df_scores_loso["half"].astype("category")
@@ -813,8 +1006,6 @@ def run_one_measure_effect(
         "f_quad",
         "mean_trial_difficulty",
         "mean_trial_difficulty_c",
-        "sequence_nr",
-        "sequence_nr_c",
         "mean_rt",
         "mean_log_rt",
         "EW_score",
@@ -832,24 +1023,28 @@ def run_one_measure_effect(
     df_final["total_subjects"] = len(subjects)
     df_final["measure"] = measure
     df_final["target_effect"] = target_effect
-    df_final["reference"] = reference_to_use
+
+    if not df_stability_summary.empty:
+        for col in df_stability_summary.columns:
+            df_final[col] = df_stability_summary.iloc[0][col]
 
     df_final.to_csv(
         combo_dir / f"{measure}_loso_effect_weighted_final_mlm_{effect_safe}.csv",
         index=False,
     )
 
-    # save model summary as text
     with open(combo_dir / f"{measure}_loso_effect_weighted_final_mlm_{effect_safe}.txt", "w") as f:
         f.write("Final LOSO effect-weighted score model\n")
         f.write(f"Measure: {measure}\n")
-        f.write(f"Reference: {reference_to_use}\n")
         f.write(f"Target effect used to derive filters: {target_effect}\n")
         f.write(f"Random-effects structure: {used_re}\n")
         f.write(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}\n\n")
+        if not df_stability_summary.empty:
+            f.write("Filter stability summary\n")
+            f.write(df_stability_summary.to_string(index=False))
+            f.write("\n\n")
         f.write(str(fit.summary()))
 
-    # score curve plot
     plot_score_model_curves_with_counts(
         df_model=dsub,
         fit=fit,
@@ -858,15 +1053,17 @@ def run_one_measure_effect(
         n_bins=n_bins_plot,
     )
 
-    print(f"Completed measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
+    print(f"Completed measure={measure}, target_effect={target_effect}")
     print(f"Random-effects structure: {used_re}")
     print(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}")
+    if not df_stability_summary.empty:
+        print(df_stability_summary.to_string(index=False))
 
     return df_final.copy()
 
 
 # -----------------------------------------------------------------------------
-# Load raw data once
+# Load raw data
 # -----------------------------------------------------------------------------
 df_raw = pd.read_csv(file_in)
 
@@ -878,26 +1075,121 @@ df_raw["half"] = df_raw["half"].astype("category")
 if "window" in df_raw.columns:
     df_raw["window"] = df_raw["window"].astype("category")
 
-if "reference" not in df_raw.columns:
-    raise RuntimeError("Input file does not contain a 'reference' column.")
-
-df_raw["reference"] = df_raw["reference"].astype("category")
 df_raw["group"] = df_raw["group"].cat.set_categories(["control", "experimental"])
 
-for col in [
-    "f",
-    "mean_trial_difficulty",
-    "sequence_nr",
-    "mean_rt",
-    "mean_log_rt",
-] + measures:
+for col in ["f", "mean_trial_difficulty", "mean_rt", "mean_log_rt", "r2", "error", "exponent"] + measures:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce")
 
-df_raw = df_raw[df_raw["reference"] == reference_to_use].copy()
-
 if len(df_raw) == 0:
-    raise RuntimeError(f"No rows found for reference = {reference_to_use}")
+    raise RuntimeError("No rows found in input file.")
+
+
+# -----------------------------------------------------------------------------
+# Sequence-level QC
+# -----------------------------------------------------------------------------
+if apply_sequence_qc:
+    df_raw_qc, df_sequence_qc_summary = apply_sequence_level_qc(
+        df_long=df_raw,
+        min_r2=qc_min_r2,
+        max_error=qc_max_error,
+        min_exponent=qc_min_exponent,
+        max_exponent=qc_max_exponent,
+    )
+
+    df_sequence_qc_summary.to_csv(
+        path_out / "sequence_level_qc_summary.csv",
+        index=False,
+    )
+
+    n_rows_before_qc = len(df_raw)
+    n_rows_after_qc = len(df_raw_qc)
+
+    n_seq_before_qc = df_raw[get_seq_id_cols(df_raw)].drop_duplicates().shape[0]
+    n_seq_after_qc = df_raw_qc[get_seq_id_cols(df_raw_qc)].drop_duplicates().shape[0]
+
+    print("\nSequence-level QC summary:")
+    print(f"QC thresholds: r2 >= {qc_min_r2}, error <= {qc_max_error}, exponent in [{qc_min_exponent}, {qc_max_exponent}]")
+    print(f"Rows before QC: {n_rows_before_qc}")
+    print(f"Rows after QC:  {n_rows_after_qc}")
+    print(f"Rows dropped by QC: {n_rows_before_qc - n_rows_after_qc}")
+    print(f"Sequences before QC: {n_seq_before_qc}")
+    print(f"Sequences after QC:  {n_seq_after_qc}")
+
+    df_raw = df_raw_qc.copy()
+
+
+# -----------------------------------------------------------------------------
+# Complete-sequence restriction
+# -----------------------------------------------------------------------------
+electrodes = sorted(df_raw["ch_name"].dropna().unique())
+expected_n_electrodes = len(electrodes)
+
+df_raw_complete, df_sequence_completeness = summarize_and_filter_complete_sequences(
+    df_long=df_raw,
+    expected_electrodes=electrodes,
+)
+
+df_sequence_completeness = df_sequence_completeness.sort_values(
+    ["n_sequences_dropped_incomplete", "id"],
+    ascending=[False, True],
+).reset_index(drop=True)
+
+df_sequence_completeness.to_csv(
+    path_out / "sequence_completeness_summary.csv",
+    index=False,
+)
+
+print("\nSequence completeness summary:")
+print(f"Expected electrodes per sequence after QC: {expected_n_electrodes}")
+print(f"Rows before complete-sequence filtering: {len(df_raw)}")
+print(f"Rows after complete-sequence filtering:  {len(df_raw_complete)}")
+
+seq_cols_print = get_seq_id_cols(df_raw)
+n_seq_before = df_raw[seq_cols_print].drop_duplicates().shape[0]
+n_seq_after = df_raw_complete[seq_cols_print].drop_duplicates().shape[0]
+
+print(f"Sequences before filtering: {n_seq_before}")
+print(f"Sequences after filtering:  {n_seq_after}")
+print(f"Sequences dropped:          {n_seq_before - n_seq_after}")
+
+
+# -----------------------------------------------------------------------------
+# Minimum retained complete sequences per subject
+# -----------------------------------------------------------------------------
+df_raw_filtered, df_subject_sequence_summary = summarize_and_filter_subjects_by_sequence_count(
+    df_long=df_raw_complete,
+    min_sequences=min_sequences_per_subject,
+)
+
+df_subject_sequence_summary = df_subject_sequence_summary.sort_values(
+    ["keep_subject", "n_complete_sequences", "id"],
+    ascending=[True, True, True],
+).reset_index(drop=True)
+
+df_subject_sequence_summary.to_csv(
+    path_out / f"subject_sequence_count_summary_min{min_sequences_per_subject}.csv",
+    index=False,
+)
+
+n_subj_before = df_raw_complete["id"].nunique()
+n_subj_after = df_raw_filtered["id"].nunique()
+
+print("\nMinimum complete-sequence criterion:")
+print(f"Minimum complete sequences per subject: {min_sequences_per_subject}")
+print(f"Subjects before criterion: {n_subj_before}")
+print(f"Subjects after criterion:  {n_subj_after}")
+print(f"Subjects dropped:          {n_subj_before - n_subj_after}")
+
+print("\nDropped subjects:")
+print(
+    df_subject_sequence_summary.loc[
+        ~df_subject_sequence_summary["keep_subject"],
+        ["id", "group", "n_complete_sequences"]
+    ].to_string(index=False)
+)
+
+df_raw = df_raw_filtered.copy()
 
 
 # -----------------------------------------------------------------------------
@@ -922,9 +1214,12 @@ all_final_results = []
 
 for measure in measures:
     print("\n" + "#" * 100)
-    print(f"Preparing base dataframe for measure={measure}, reference={reference_to_use}")
+    print(f"Preparing base dataframe for measure={measure}")
 
     df_base = prepare_base_dataframe(df_raw, measure=measure)
+
+    print(f"Rows in df_base: {len(df_base)}")
+    print(f"Subjects in df_base: {df_base['id'].nunique()}")
 
     for target_effect in target_effects:
         try:
@@ -935,21 +1230,19 @@ for measure in measures:
                 electrodes=electrodes,
                 info=info,
                 out_root=path_out,
-                reference_to_use=reference_to_use,
             )
 
             if df_final_this is not None:
                 all_final_results.append(df_final_this)
 
         except Exception as exc:
-            print(f"FAILED: measure={measure}, target_effect={target_effect}, reference={reference_to_use}")
+            print(f"FAILED: measure={measure}, target_effect={target_effect}")
             print(str(exc))
 
             fail_row = pd.DataFrame(
                 {
                     "measure": [measure],
                     "target_effect": [target_effect],
-                    "reference": [reference_to_use],
                     "term": ["RUN_FAILED"],
                     "beta": [np.nan],
                     "se": [np.nan],
@@ -963,6 +1256,15 @@ for measure in measures:
                     "bic": [np.nan],
                     "successful_loso_folds": [np.nan],
                     "total_subjects": [np.nan],
+                    "n_successful_folds": [np.nan],
+                    "mean_pairwise_r": [np.nan],
+                    "median_pairwise_r": [np.nan],
+                    "min_pairwise_r": [np.nan],
+                    "max_pairwise_r": [np.nan],
+                    "sd_pairwise_r": [np.nan],
+                    "mean_r_to_mean_filter": [np.nan],
+                    "median_r_to_mean_filter": [np.nan],
+                    "sd_r_to_mean_filter": [np.nan],
                 }
             )
             all_final_results.append(fail_row)
@@ -974,19 +1276,19 @@ for measure in measures:
 if len(all_final_results) > 0:
     df_master = pd.concat(all_final_results, ignore_index=True)
     df_master.to_csv(
-        path_out / f"batch_loso_master_results_{reference_to_use}.csv",
+        path_out / "batch_loso_master_results.csv",
         index=False,
     )
 
     mask_target = df_master["term"] == df_master["target_effect"]
     df_target_only = df_master[mask_target].copy()
     df_target_only.to_csv(
-        path_out / f"batch_loso_target_term_results_{reference_to_use}.csv",
+        path_out / "batch_loso_target_term_results.csv",
         index=False,
     )
 
     print("\nSaved:")
-    print(path_out / f"batch_loso_master_results_{reference_to_use}.csv")
-    print(path_out / f"batch_loso_target_term_results_{reference_to_use}.csv")
+    print(path_out / "batch_loso_master_results.csv")
+    print(path_out / "batch_loso_target_term_results.csv")
 else:
     print("No results to save.")
