@@ -76,9 +76,9 @@ min_sequences_per_subject = 8
 
 # Sequence-level FOOOF QC applied AFTER loading
 apply_sequence_qc = True
-qc_min_r2 = 0.80
+qc_min_r2 = 0.70
 qc_max_error = 0.30
-qc_min_exponent = 0.50
+qc_min_exponent = 0.2
 qc_max_exponent = 3.50
 
 # LOSO

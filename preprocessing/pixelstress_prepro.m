@@ -80,10 +80,9 @@ subject_list = {'9_1',...
                 '95_2',...
                 '96_2',...
                 '97_2',...
-                '98_2'
+                '98_2',...
+                '18_2'
                };
-
-subject_list = {'18_2'};
 
 % Failed:
 % '18_2' something with ICA
@@ -285,18 +284,19 @@ for s = 1 : length(subject_list)
     EEG.chanlocs_original = EEG.chanlocs;
 
     % For VP 18, remove Fp1 & Fp2
-    % if subject_id == 18
-    %     EEG = pop_select(EEG, 'nochannel', [1, 2]);
-    % end
+    if subject_id == 18
+        EEG = pop_select(EEG, 'nochannel', [1, 2]);
+    end
 
     % Reref to CPz, so that FCz obtains non-interpolated data
     EEG = pop_reref(EEG, 'CPz');
 
     % Resample data
+    EEG = pop_resample(EEG, 500);
     EEG_TF = pop_resample(EEG, 200);
 
     % Filter
-    EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 45], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
+    EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 80], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
     EEG_TF = pop_basicfilter(EEG_TF, [1 : EEG_TF.nbchan], 'Cutoff', [   1, 45], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary');
         
     % Bad channel detection

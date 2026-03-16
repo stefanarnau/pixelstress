@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
 # Sequence-based CSD FOOOF + RT + flattened oscillatory bandpower extraction
+# - includes optional downsampling AFTER CSD and BEFORE PSD estimation
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
-import glob
 
 import fooof
 import mne
@@ -51,9 +51,13 @@ INFO_ERP.set_montage(MONTAGE, on_missing="warn", match_case=False)
 TIME_WINDOW = (-1.7, 0.0)
 MIN_TRIALS_PER_SEQUENCE = 5
 
+# PSD / FOOOF settings
+DOWNSAMPLE_BEFORE_PSD = True
+TARGET_SFREQ = 250
+
 FMIN_FIT = 1.0
 FMAX_FIT = 30.0
-MT_BANDWIDTH = 3.0
+MT_BANDWIDTH = 2.0
 
 FOOOF_KWARGS = dict(
     aperiodic_mode="fixed",
@@ -75,6 +79,20 @@ CSD_KWARGS = dict(
     n_legendre_terms=50,
 )
 
+# Aggregation across trials within sequence
+PSD_AGG_MODE = "mean"   # "mean" or "median"
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+def aggregate_psd(psd: np.ndarray, mode: str = "mean") -> np.ndarray:
+    if mode == "mean":
+        return psd.mean(axis=0)
+    if mode == "median":
+        return np.median(psd, axis=0)
+    raise ValueError(f"Unknown PSD_AGG_MODE: {mode}")
+
 
 # -----------------------------------------------------------------------------
 # Core extraction
@@ -84,8 +102,13 @@ def extract_sequence_measures(
     erp_times_sec: np.ndarray,
     df_trials: pd.DataFrame,
     subj_id: int,
+    sfreq_psd: float,
 ):
-    tidx = np.where((erp_times_sec >= TIME_WINDOW[0]) & (erp_times_sec < TIME_WINDOW[1]))[0]
+    tidx = np.where(
+        (erp_times_sec >= TIME_WINDOW[0]) &
+        (erp_times_sec < TIME_WINDOW[1])
+    )[0]
+
     if tidx.size == 0:
         raise ValueError("No samples found in requested time window.")
 
@@ -113,11 +136,12 @@ def extract_sequence_measures(
         mean_rt = float(dseq["rt"].mean())
         mean_log_rt = float(np.log(mean_rt)) if mean_rt > 0 else np.nan
 
+        # trials x channels x time-window
         x = erp_data[idx][:, :, tidx]
 
         psd, freqs = psd_array_multitaper(
             x,
-            sfreq=INFO_ERP["sfreq"],
+            sfreq=sfreq_psd,
             fmin=FMIN_FIT,
             fmax=FMAX_FIT,
             bandwidth=MT_BANDWIDTH,
@@ -126,7 +150,7 @@ def extract_sequence_measures(
             n_jobs=1,
         )
 
-        psd_seq = psd.mean(axis=0)
+        psd_seq = aggregate_psd(psd, mode=PSD_AGG_MODE)
         freqs_out = freqs
 
         seq_psd.append(psd_seq)
@@ -142,6 +166,7 @@ def extract_sequence_measures(
                 "f": f,
                 "mean_rt": mean_rt,
                 "mean_log_rt": mean_log_rt,
+                "sfreq_psd": float(sfreq_psd),
             }
         )
 
@@ -191,6 +216,8 @@ def extract_sequence_measures(
                     "fmin_fit": FMIN_FIT,
                     "fmax_fit": FMAX_FIT,
                     "mt_bandwidth": MT_BANDWIDTH,
+                    "sfreq_psd": float(sfreq_psd),
+                    "psd_agg_mode": PSD_AGG_MODE,
                 }
             )
 
@@ -253,13 +280,29 @@ def process_subject(dataset: Path):
     )
 
     epochs_csd = compute_current_source_density(epochs.copy(), **CSD_KWARGS)
-    erp_data_csd = epochs_csd.get_data(copy=True)
+
+    # -------------------------------------------------------------------------
+    # Downsample after CSD and before PSD estimation
+    # -------------------------------------------------------------------------
+    if DOWNSAMPLE_BEFORE_PSD:
+        epochs_csd_psd = epochs_csd.copy().resample(
+            TARGET_SFREQ,
+            npad="auto",
+            verbose=False,
+        )
+    else:
+        epochs_csd_psd = epochs_csd
+
+    erp_data_csd = epochs_csd_psd.get_data(copy=True)
+    erp_times_sec_csd = epochs_csd_psd.times.copy()
+    sfreq_psd = float(epochs_csd_psd.info["sfreq"])
 
     df_seq, seq_psd, seq_index, freqs = extract_sequence_measures(
         erp_data=erp_data_csd,
-        erp_times_sec=erp_times_sec,
+        erp_times_sec=erp_times_sec_csd,
         df_trials=df_trials,
         subj_id=subj_id,
+        sfreq_psd=sfreq_psd,
     )
 
     if df_seq is None or df_seq.empty:
