@@ -17,8 +17,8 @@ path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
 path_out = Path("/mnt/data_dump/pixelstress/7_rt_models/")
 path_out.mkdir(parents=True, exist_ok=True)
 
-file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_with_reference.csv"
 
+file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_csd.csv"
 
 # -----------------------------------------------------------------------------
 # Settings
@@ -189,6 +189,7 @@ df["id"] = df["id"].astype("category")
 df["group"] = df["group"].astype("category")
 df["ch_name"] = df["ch_name"].astype("category")
 df["half"] = df["half"].astype("category")
+df["f2"] = df["f"]**2
 
 if "window" in df.columns:
     df["window"] = df["window"].astype("category")

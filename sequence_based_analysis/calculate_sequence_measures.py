@@ -28,7 +28,7 @@ DATASETS = sorted(PATH_IN.glob("*erp.set"))
 # -----------------------------------------------------------------------------
 # Exclusions
 # -----------------------------------------------------------------------------
-IDS_TO_DROP = {1, 2, 3, 4, 5, 6, 13, 17, 18, 25, 40, 49, 83}
+IDS_TO_DROP = {1, 2, 3, 4, 5, 6, 13, 17, 25, 40, 49, 83}
 
 
 # -----------------------------------------------------------------------------
@@ -40,7 +40,7 @@ CHANNEL_LABELS = (
     .splitlines()
 )
 
-INFO_ERP = mne.create_info(CHANNEL_LABELS, sfreq=1000, ch_types="eeg", verbose=None)
+INFO_ERP = mne.create_info(CHANNEL_LABELS, sfreq=500, ch_types="eeg", verbose=None)
 MONTAGE = mne.channels.make_standard_montage("standard_1020")
 INFO_ERP.set_montage(MONTAGE, on_missing="warn", match_case=False)
 
@@ -56,7 +56,7 @@ DOWNSAMPLE_BEFORE_PSD = True
 TARGET_SFREQ = 250
 
 FMIN_FIT = 1.0
-FMAX_FIT = 30.0
+FMAX_FIT = 40.0
 MT_BANDWIDTH = 2.0
 
 FOOOF_KWARGS = dict(
@@ -80,7 +80,7 @@ CSD_KWARGS = dict(
 )
 
 # Aggregation across trials within sequence
-PSD_AGG_MODE = "mean"   # "mean" or "median"
+PSD_AGG_MODE = "mean"  # "mean" or "median"
 
 
 # -----------------------------------------------------------------------------
@@ -105,8 +105,7 @@ def extract_sequence_measures(
     sfreq_psd: float,
 ):
     tidx = np.where(
-        (erp_times_sec >= TIME_WINDOW[0]) &
-        (erp_times_sec < TIME_WINDOW[1])
+        (erp_times_sec >= TIME_WINDOW[0]) & (erp_times_sec < TIME_WINDOW[1])
     )[0]
 
     if tidx.size == 0:
@@ -310,7 +309,9 @@ def process_subject(dataset: Path):
 
     subj_tag = f"sub-{subj_id:03d}"
 
-    df_seq.to_csv(PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_csd.csv", index=False)
+    df_seq.to_csv(
+        PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_csd.csv", index=False
+    )
 
     if seq_psd and freqs is not None:
         np.savez_compressed(
@@ -335,9 +336,7 @@ seq_data = Parallel(
     n_jobs=12,
     backend="loky",
     verbose=10,
-)(
-    delayed(process_subject)(dataset) for dataset in DATASETS
-)
+)(delayed(process_subject)(dataset) for dataset in DATASETS)
 
 seq_data = [d for d in seq_data if d is not None and not d.empty]
 
@@ -358,4 +357,6 @@ print("Saved:", combined_file)
 print("Rows:", len(df_all))
 print("Subjects:", df_all["id"].nunique())
 print("Electrodes:", df_all["ch_name"].nunique())
-print("Sequences:", df_all[["id", "block_nr", "sequence_nr"]].drop_duplicates().shape[0])
+print(
+    "Sequences:", df_all[["id", "block_nr", "sequence_nr"]].drop_duplicates().shape[0]
+)

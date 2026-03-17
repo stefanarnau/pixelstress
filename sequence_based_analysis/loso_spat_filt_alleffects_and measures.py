@@ -1,10 +1,12 @@
 # -----------------------------------------------------------------------------
 # Batch LOSO effect-weighted spatial filtering + final MLM
 # - reads CSD-only sequence dataframe
-# - applies sequence-level FOOOF QC after loading
-# - complete-sequence restriction: keep only sequences with all electrodes present
-# - minimum retained complete sequences per subject
+# - applies electrode-level FOOOF QC after loading
+# - keeps incomplete sequences
+# - minimum retained sequences per subject
 # - LOSO effect-weighted spatial filtering
+# - LOSO score computed on available electrodes only
+# - requires minimum retained filter mass per sequence
 # - final MLM on out-of-fold component scores
 # -----------------------------------------------------------------------------
 
@@ -32,17 +34,17 @@ file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_csd.csv"
 # Settings
 # -----------------------------------------------------------------------------
 measures = [
-    # "exponent",
+    "exponent",
     "theta_flat",
-    # "alpha_flat",
+    "alpha_flat",
     # "beta_flat",
 ]
 
 target_effects = [
-    #"group[T.experimental]",
-    #"f_lin",
-    #"f_quad",
-    #"group[T.experimental]:f_lin",
+    # "group[T.experimental]",
+    # "f_lin",
+    # "f_quad",
+    # "group[T.experimental]:f_lin",
     "group[T.experimental]:f_quad",
 ]
 
@@ -74,12 +76,16 @@ min_obs_per_electrode_model = 50
 # Subject retention
 min_sequences_per_subject = 8
 
-# Sequence-level FOOOF QC applied AFTER loading
+# Sequence-level FOOOF QC applied AFTER loading, but only bad electrode rows removed
 apply_sequence_qc = True
-qc_min_r2 = 0.70
+qc_min_r2 = 0.80
 qc_max_error = 0.30
-qc_min_exponent = 0.2
+qc_min_exponent = 0.50
 qc_max_exponent = 3.50
+
+# Minimum retained filter mass for scoring a sequence
+# score sequence only if sum(w_available^2) / sum(w_all^2) >= threshold
+min_retained_filter_mass = 0.80
 
 # LOSO
 n_jobs_loso = -1
@@ -233,6 +239,7 @@ def build_sequence_wide(
     df_long: pd.DataFrame,
     measure: str,
     electrodes: list[str] | None = None,
+    drop_incomplete: bool = False,
 ):
     key_cols = get_sequence_key_cols(df_long)
     df_use = df_long.dropna(subset=[measure, "ch_name"] + key_cols).copy()
@@ -250,7 +257,8 @@ def build_sequence_wide(
     else:
         seq_wide = seq_wide.sort_index(axis=1)
 
-    seq_wide = seq_wide.dropna(axis=0, how="any").copy()
+    if drop_incomplete:
+        seq_wide = seq_wide.dropna(axis=0, how="any").copy()
 
     if seq_wide.shape[0] == 0:
         return None, None, None
@@ -560,7 +568,10 @@ def prepare_base_dataframe(df_raw: pd.DataFrame, measure: str) -> pd.DataFrame:
     return df
 
 
-def compute_filter_stability(df_filters_loso: pd.DataFrame, electrodes: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def compute_filter_stability(
+    df_filters_loso: pd.DataFrame,
+    electrodes: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if df_filters_loso.empty:
         return pd.DataFrame(), pd.DataFrame()
 
@@ -637,6 +648,7 @@ def apply_sequence_level_qc(
     max_exponent: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     seq_cols = get_seq_id_cols(df_long)
+
     qc_mask = (
         df_long["r2"].ge(min_r2)
         & df_long["error"].le(max_error)
@@ -647,15 +659,19 @@ def apply_sequence_level_qc(
 
     seq_before = (
         df_long.groupby(seq_cols, observed=True)
-        .agg(n_rows_before=("ch_name", "size"),
-             n_electrodes_before=("ch_name", "nunique"))
+        .agg(
+            n_rows_before=("ch_name", "size"),
+            n_electrodes_before=("ch_name", "nunique"),
+        )
         .reset_index()
     )
 
     seq_after = (
         df_qc.groupby(seq_cols, observed=True)
-        .agg(n_rows_after=("ch_name", "size"),
-             n_electrodes_after=("ch_name", "nunique"))
+        .agg(
+            n_rows_after=("ch_name", "size"),
+            n_electrodes_after=("ch_name", "nunique"),
+        )
         .reset_index()
     )
 
@@ -663,60 +679,14 @@ def apply_sequence_level_qc(
     seq_summary["n_rows_after"] = seq_summary["n_rows_after"].fillna(0).astype(int)
     seq_summary["n_electrodes_after"] = seq_summary["n_electrodes_after"].fillna(0).astype(int)
     seq_summary["n_rows_dropped_qc"] = seq_summary["n_rows_before"] - seq_summary["n_rows_after"]
+    seq_summary["n_electrodes_dropped_qc"] = (
+        seq_summary["n_electrodes_before"] - seq_summary["n_electrodes_after"]
+    )
 
     return df_qc, seq_summary
 
 
-def summarize_and_filter_complete_sequences(
-    df_long: pd.DataFrame,
-    expected_electrodes: list[str],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    expected_n_electrodes = len(expected_electrodes)
-    seq_cols = get_seq_id_cols(df_long)
-
-    df_seq_counts = (
-        df_long.groupby(seq_cols, observed=True)
-        .agg(
-            group=("group", "first"),
-            half=("half", "first"),
-            n_electrodes_present=("ch_name", "nunique"),
-            n_rows=("ch_name", "size"),
-        )
-        .reset_index()
-    )
-
-    df_seq_counts["is_complete_sequence"] = (
-        df_seq_counts["n_electrodes_present"] == expected_n_electrodes
-    )
-
-    df_summary = (
-        df_seq_counts.groupby("id", observed=True)
-        .agg(
-            group=("group", "first"),
-            n_sequences_total=("is_complete_sequence", "size"),
-            n_sequences_complete=("is_complete_sequence", "sum"),
-            mean_electrodes_present=("n_electrodes_present", "mean"),
-            min_electrodes_present=("n_electrodes_present", "min"),
-            max_electrodes_present=("n_electrodes_present", "max"),
-        )
-        .reset_index()
-    )
-
-    df_summary["n_sequences_dropped_incomplete"] = (
-        df_summary["n_sequences_total"] - df_summary["n_sequences_complete"]
-    )
-    df_summary["prop_sequences_complete"] = (
-        df_summary["n_sequences_complete"] / df_summary["n_sequences_total"]
-    )
-    df_summary["expected_n_electrodes"] = expected_n_electrodes
-
-    df_complete_keys = df_seq_counts.loc[df_seq_counts["is_complete_sequence"], seq_cols].copy()
-    df_filtered = df_long.merge(df_complete_keys, on=seq_cols, how="inner").copy()
-
-    return df_filtered, df_summary
-
-
-def summarize_and_filter_subjects_by_sequence_count(
+def summarize_subjects_by_sequence_count(
     df_long: pd.DataFrame,
     min_sequences: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -727,7 +697,7 @@ def summarize_and_filter_subjects_by_sequence_count(
         .drop_duplicates()
         .groupby("id", observed=True)
         .size()
-        .rename("n_complete_sequences")
+        .rename("n_sequences")
         .reset_index()
     )
 
@@ -738,13 +708,51 @@ def summarize_and_filter_subjects_by_sequence_count(
     )
 
     df_summary = df_group.merge(df_seq_counts, on="id", how="left")
-    df_summary["n_complete_sequences"] = df_summary["n_complete_sequences"].fillna(0).astype(int)
-    df_summary["keep_subject"] = df_summary["n_complete_sequences"] >= min_sequences
+    df_summary["n_sequences"] = df_summary["n_sequences"].fillna(0).astype(int)
+    df_summary["keep_subject"] = df_summary["n_sequences"] >= min_sequences
 
     keep_ids = df_summary.loc[df_summary["keep_subject"], "id"]
     df_filtered = df_long[df_long["id"].isin(keep_ids)].copy()
 
     return df_filtered, df_summary
+
+
+def compute_available_weighted_scores(
+    X_test: np.ndarray,
+    train_means: np.ndarray,
+    w: np.ndarray,
+    min_filter_mass: float,
+):
+    scores = np.full(X_test.shape[0], np.nan, dtype=float)
+    retained_mass = np.full(X_test.shape[0], np.nan, dtype=float)
+    n_available = np.zeros(X_test.shape[0], dtype=int)
+
+    total_mass = float(np.sum(w ** 2))
+    if total_mass <= 0:
+        return scores, retained_mass, n_available
+
+    for i in range(X_test.shape[0]):
+        xi = X_test[i, :]
+        valid = np.isfinite(xi) & np.isfinite(train_means) & np.isfinite(w)
+
+        n_available[i] = int(valid.sum())
+
+        if valid.sum() == 0:
+            continue
+
+        mass_i = float(np.sum(w[valid] ** 2))
+        retained_mass[i] = mass_i / total_mass if total_mass > 0 else np.nan
+
+        if not np.isfinite(retained_mass[i]) or retained_mass[i] < min_filter_mass:
+            continue
+
+        denom = np.sqrt(mass_i)
+        if denom == 0:
+            continue
+
+        scores[i] = float(np.dot(xi[valid] - train_means[valid], w[valid]) / denom)
+
+    return scores, retained_mass, n_available
 
 
 def run_loso_fold(
@@ -758,6 +766,7 @@ def run_loso_fold(
     min_obs_per_electrode_model,
     target_effect,
     w_ref,
+    min_retained_filter_mass,
 ):
     subject_as_str = str(held_out)
     df_train = df[df["id"].astype(str) != subject_as_str].copy()
@@ -814,12 +823,14 @@ def run_loso_fold(
         df_long=df_train,
         measure=measure,
         electrodes=electrodes,
+        drop_incomplete=False,
     )
 
     _, seq_meta_test, X_test = build_sequence_wide(
         df_long=df_test,
         measure=measure,
         electrodes=electrodes,
+        drop_incomplete=False,
     )
 
     if X_train is None:
@@ -827,7 +838,7 @@ def run_loso_fold(
             "held_out": held_out,
             "scores": None,
             "filter": None,
-            "status": "no complete training sequence rows",
+            "status": "no training sequence rows",
         }
 
     if X_test is None:
@@ -835,16 +846,34 @@ def run_loso_fold(
             "held_out": held_out,
             "scores": None,
             "filter": None,
-            "status": "no complete held-out sequence rows",
+            "status": "no held-out sequence rows",
         }
 
     train_means = np.nanmean(X_train, axis=0)
-    X_test_c = X_test - train_means[None, :]
-    score_test = X_test_c @ w
+
+    score_test, retained_mass_test, n_available_test = compute_available_weighted_scores(
+        X_test=X_test,
+        train_means=train_means,
+        w=w,
+        min_filter_mass=min_retained_filter_mass,
+    )
 
     df_scores_fold = seq_meta_test.copy()
     df_scores_fold["held_out_subject"] = held_out
     df_scores_fold["EW_score"] = score_test
+    df_scores_fold["retained_filter_mass"] = retained_mass_test
+    df_scores_fold["n_available_electrodes"] = n_available_test
+    df_scores_fold["n_total_electrodes"] = len(electrodes)
+
+    df_scores_fold = df_scores_fold.dropna(subset=["EW_score"]).reset_index(drop=True)
+
+    if len(df_scores_fold) == 0:
+        return {
+            "held_out": held_out,
+            "scores": None,
+            "filter": None,
+            "status": f"no held-out sequences passed retained filter mass >= {min_retained_filter_mass}",
+        }
 
     df_filter_fold = pd.DataFrame(
         {
@@ -889,15 +918,16 @@ def run_one_measure_effect(
 
     df_beta_full.to_csv(combo_dir / f"{measure}_electrode_mlm_betas_full_data.csv", index=False)
 
-    terms_to_plot = [t for t in effects_for_topomaps if t in df_beta_full["term"].unique()]
-    save_full_data_topomap_panel(
-        df_beta_full=df_beta_full,
-        electrodes=electrodes,
-        info=info,
-        terms_to_plot=terms_to_plot,
-        title=f"{measure} full-data electrode-wise MLM effect sizes (descriptive)",
-        out_file=combo_dir / f"{measure}_full_data_topomaps.png",
-    )
+    if not df_beta_full.empty:
+        terms_to_plot = [t for t in effects_for_topomaps if t in df_beta_full["term"].unique()]
+        save_full_data_topomap_panel(
+            df_beta_full=df_beta_full,
+            electrodes=electrodes,
+            info=info,
+            terms_to_plot=terms_to_plot,
+            title=f"{measure} full-data electrode-wise MLM effect sizes (descriptive)",
+            out_file=combo_dir / f"{measure}_full_data_topomaps.png",
+        )
 
     w_ref = build_reference_map(
         df_beta_full=df_beta_full,
@@ -924,6 +954,7 @@ def run_one_measure_effect(
             min_obs_per_electrode_model=min_obs_per_electrode_model,
             target_effect=target_effect,
             w_ref=w_ref,
+            min_retained_filter_mass=min_retained_filter_mass,
         )
         for s in subjects
     )
@@ -967,12 +998,14 @@ def run_one_measure_effect(
         combo_dir / f"{measure}_loso_filter_stability_pairwise_{effect_safe}.csv",
         index=False,
     )
-    df_stability_summary["measure"] = measure
-    df_stability_summary["target_effect"] = target_effect
-    df_stability_summary.to_csv(
-        combo_dir / f"{measure}_loso_filter_stability_summary_{effect_safe}.csv",
-        index=False,
-    )
+
+    if not df_stability_summary.empty:
+        df_stability_summary["measure"] = measure
+        df_stability_summary["target_effect"] = target_effect
+        df_stability_summary.to_csv(
+            combo_dir / f"{measure}_loso_filter_stability_summary_{effect_safe}.csv",
+            index=False,
+        )
 
     df_filter_mean = (
         df_filters_loso.groupby("electrode", as_index=False)["weight"]
@@ -1009,6 +1042,9 @@ def run_one_measure_effect(
         "mean_rt",
         "mean_log_rt",
         "EW_score",
+        "retained_filter_mass",
+        "n_available_electrodes",
+        "n_total_electrodes",
     ]:
         if col in df_scores_loso.columns:
             df_scores_loso[col] = pd.to_numeric(df_scores_loso[col], errors="coerce")
@@ -1023,6 +1059,11 @@ def run_one_measure_effect(
     df_final["total_subjects"] = len(subjects)
     df_final["measure"] = measure
     df_final["target_effect"] = target_effect
+    df_final["min_retained_filter_mass"] = min_retained_filter_mass
+    df_final["mean_retained_filter_mass"] = df_scores_loso["retained_filter_mass"].mean(skipna=True)
+    df_final["median_retained_filter_mass"] = df_scores_loso["retained_filter_mass"].median(skipna=True)
+    df_final["mean_available_electrodes"] = df_scores_loso["n_available_electrodes"].mean(skipna=True)
+    df_final["median_available_electrodes"] = df_scores_loso["n_available_electrodes"].median(skipna=True)
 
     if not df_stability_summary.empty:
         for col in df_stability_summary.columns:
@@ -1038,7 +1079,12 @@ def run_one_measure_effect(
         f.write(f"Measure: {measure}\n")
         f.write(f"Target effect used to derive filters: {target_effect}\n")
         f.write(f"Random-effects structure: {used_re}\n")
-        f.write(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}\n\n")
+        f.write(f"Minimum retained filter mass: {min_retained_filter_mass}\n")
+        f.write(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}\n")
+        f.write(f"Mean retained filter mass across scored sequences: {df_scores_loso['retained_filter_mass'].mean(skipna=True):.4f}\n")
+        f.write(f"Median retained filter mass across scored sequences: {df_scores_loso['retained_filter_mass'].median(skipna=True):.4f}\n")
+        f.write(f"Mean available electrodes across scored sequences: {df_scores_loso['n_available_electrodes'].mean(skipna=True):.2f}\n")
+        f.write(f"Median available electrodes across scored sequences: {df_scores_loso['n_available_electrodes'].median(skipna=True):.2f}\n\n")
         if not df_stability_summary.empty:
             f.write("Filter stability summary\n")
             f.write(df_stability_summary.to_string(index=False))
@@ -1056,6 +1102,11 @@ def run_one_measure_effect(
     print(f"Completed measure={measure}, target_effect={target_effect}")
     print(f"Random-effects structure: {used_re}")
     print(f"Successful LOSO folds: {len(all_scores)} / {len(subjects)}")
+    print(f"Mean retained filter mass: {df_scores_loso['retained_filter_mass'].mean(skipna=True):.4f}")
+    print(f"Median retained filter mass: {df_scores_loso['retained_filter_mass'].median(skipna=True):.4f}")
+    print(f"Mean available electrodes: {df_scores_loso['n_available_electrodes'].mean(skipna=True):.2f}")
+    print(f"Median available electrodes: {df_scores_loso['n_available_electrodes'].median(skipna=True):.2f}")
+
     if not df_stability_summary.empty:
         print(df_stability_summary.to_string(index=False))
 
@@ -1115,55 +1166,21 @@ if apply_sequence_qc:
     print(f"Rows dropped by QC: {n_rows_before_qc - n_rows_after_qc}")
     print(f"Sequences before QC: {n_seq_before_qc}")
     print(f"Sequences after QC:  {n_seq_after_qc}")
+    print("Note: sequences are retained even if some electrodes fail QC.")
 
     df_raw = df_raw_qc.copy()
 
 
 # -----------------------------------------------------------------------------
-# Complete-sequence restriction
+# Minimum retained sequences per subject
 # -----------------------------------------------------------------------------
-electrodes = sorted(df_raw["ch_name"].dropna().unique())
-expected_n_electrodes = len(electrodes)
-
-df_raw_complete, df_sequence_completeness = summarize_and_filter_complete_sequences(
+df_raw_filtered, df_subject_sequence_summary = summarize_subjects_by_sequence_count(
     df_long=df_raw,
-    expected_electrodes=electrodes,
-)
-
-df_sequence_completeness = df_sequence_completeness.sort_values(
-    ["n_sequences_dropped_incomplete", "id"],
-    ascending=[False, True],
-).reset_index(drop=True)
-
-df_sequence_completeness.to_csv(
-    path_out / "sequence_completeness_summary.csv",
-    index=False,
-)
-
-print("\nSequence completeness summary:")
-print(f"Expected electrodes per sequence after QC: {expected_n_electrodes}")
-print(f"Rows before complete-sequence filtering: {len(df_raw)}")
-print(f"Rows after complete-sequence filtering:  {len(df_raw_complete)}")
-
-seq_cols_print = get_seq_id_cols(df_raw)
-n_seq_before = df_raw[seq_cols_print].drop_duplicates().shape[0]
-n_seq_after = df_raw_complete[seq_cols_print].drop_duplicates().shape[0]
-
-print(f"Sequences before filtering: {n_seq_before}")
-print(f"Sequences after filtering:  {n_seq_after}")
-print(f"Sequences dropped:          {n_seq_before - n_seq_after}")
-
-
-# -----------------------------------------------------------------------------
-# Minimum retained complete sequences per subject
-# -----------------------------------------------------------------------------
-df_raw_filtered, df_subject_sequence_summary = summarize_and_filter_subjects_by_sequence_count(
-    df_long=df_raw_complete,
     min_sequences=min_sequences_per_subject,
 )
 
 df_subject_sequence_summary = df_subject_sequence_summary.sort_values(
-    ["keep_subject", "n_complete_sequences", "id"],
+    ["keep_subject", "n_sequences", "id"],
     ascending=[True, True, True],
 ).reset_index(drop=True)
 
@@ -1172,11 +1189,11 @@ df_subject_sequence_summary.to_csv(
     index=False,
 )
 
-n_subj_before = df_raw_complete["id"].nunique()
+n_subj_before = df_raw["id"].nunique()
 n_subj_after = df_raw_filtered["id"].nunique()
 
-print("\nMinimum complete-sequence criterion:")
-print(f"Minimum complete sequences per subject: {min_sequences_per_subject}")
+print("\nMinimum sequence criterion:")
+print(f"Minimum retained sequences per subject: {min_sequences_per_subject}")
 print(f"Subjects before criterion: {n_subj_before}")
 print(f"Subjects after criterion:  {n_subj_after}")
 print(f"Subjects dropped:          {n_subj_before - n_subj_after}")
@@ -1185,7 +1202,7 @@ print("\nDropped subjects:")
 print(
     df_subject_sequence_summary.loc[
         ~df_subject_sequence_summary["keep_subject"],
-        ["id", "group", "n_complete_sequences"]
+        ["id", "group", "n_sequences"]
     ].to_string(index=False)
 )
 
@@ -1220,6 +1237,7 @@ for measure in measures:
 
     print(f"Rows in df_base: {len(df_base)}")
     print(f"Subjects in df_base: {df_base['id'].nunique()}")
+    print(f"Sequences in df_base: {df_base[get_seq_id_cols(df_base)].drop_duplicates().shape[0]}")
 
     for target_effect in target_effects:
         try:
@@ -1265,6 +1283,11 @@ for measure in measures:
                     "mean_r_to_mean_filter": [np.nan],
                     "median_r_to_mean_filter": [np.nan],
                     "sd_r_to_mean_filter": [np.nan],
+                    "min_retained_filter_mass": [min_retained_filter_mass],
+                    "mean_retained_filter_mass": [np.nan],
+                    "median_retained_filter_mass": [np.nan],
+                    "mean_available_electrodes": [np.nan],
+                    "median_available_electrodes": [np.nan],
                 }
             )
             all_final_results.append(fail_row)
