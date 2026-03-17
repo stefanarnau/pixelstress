@@ -315,10 +315,10 @@ for s = 1 : length(subject_list)
     dataRank = sum(eig(cov(double(EEG_TF.data'))) > 1e-6);
 
     % Epoch EEG data
-    [EEG, idx_to_keep] = pop_epoch(EEG, {'X'}, [-1.7, 1.2], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'], 'epochinfo', 'yes');
+    [EEG, idx_to_keep] = pop_epoch(EEG, {'X'}, [-2.5, 1.2], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'], 'epochinfo', 'yes');
     EEG.trialinfo =  EEG.trialinfo(idx_to_keep, :);
     EEG = pop_rmbase(EEG, [-1600, -1400]);
-    [EEG_TF, idx_to_keep] = pop_epoch(EEG_TF, {'X'}, [-2.4, 1.8], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'],  'epochinfo', 'yes');
+    [EEG_TF, idx_to_keep] = pop_epoch(EEG_TF, {'X'}, [-2.5, 1.8], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'],  'epochinfo', 'yes');
     EEG_TF.trialinfo =  EEG_TF.trialinfo(idx_to_keep, :);
     EEG_TF = pop_rmbase(EEG_TF, [-1600, -1400]);
 
