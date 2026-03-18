@@ -1,6 +1,11 @@
 # -----------------------------------------------------------------------------
-# Sequence-based CSD FOOOF + RT + flattened oscillatory bandpower extraction
-# - includes optional downsampling AFTER CSD and BEFORE PSD estimation
+# Sequence-based FOOOF + RT + flattened oscillatory bandpower extraction
+# for both:
+#   - CAR (already present in loaded preprocessed data)
+#   - CSD (computed from epochs)
+#
+# Optional downsampling is applied AFTER reference choice and BEFORE PSD
+# estimation, identically for CAR and CSD.
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -82,6 +87,9 @@ CSD_KWARGS = dict(
 # Aggregation across trials within sequence
 PSD_AGG_MODE = "mean"  # "mean" or "median"
 
+# Reference schemes to extract
+REFERENCE_SCHEMES = ("car", "csd")
+
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -94,6 +102,38 @@ def aggregate_psd(psd: np.ndarray, mode: str = "mean") -> np.ndarray:
     raise ValueError(f"Unknown PSD_AGG_MODE: {mode}")
 
 
+def get_epochs_for_reference(epochs: mne.Epochs, reference: str) -> mne.Epochs:
+    """
+    Return epochs for the requested reference scheme.
+
+    Notes
+    -----
+    - 'car': assumes loaded preprocessed data already use common average reference.
+             No rereferencing is performed here.
+    - 'csd': computes current source density from the epochs.
+    """
+    if reference == "car":
+        return epochs.copy()
+
+    if reference == "csd":
+        return compute_current_source_density(epochs.copy(), **CSD_KWARGS)
+
+    raise ValueError(f"Unknown reference scheme: {reference}")
+
+
+def prepare_epochs_for_psd(epochs_ref: mne.Epochs) -> mne.Epochs:
+    """
+    Optionally downsample after reference selection and before PSD estimation.
+    """
+    if DOWNSAMPLE_BEFORE_PSD:
+        return epochs_ref.copy().resample(
+            TARGET_SFREQ,
+            npad="auto",
+            verbose=False,
+        )
+    return epochs_ref
+
+
 # -----------------------------------------------------------------------------
 # Core extraction
 # -----------------------------------------------------------------------------
@@ -103,6 +143,7 @@ def extract_sequence_measures(
     df_trials: pd.DataFrame,
     subj_id: int,
     sfreq_psd: float,
+    reference: str,
 ):
     tidx = np.where(
         (erp_times_sec >= TIME_WINDOW[0]) & (erp_times_sec < TIME_WINDOW[1])
@@ -166,6 +207,7 @@ def extract_sequence_measures(
                 "mean_rt": mean_rt,
                 "mean_log_rt": mean_log_rt,
                 "sfreq_psd": float(sfreq_psd),
+                "reference": reference,
             }
         )
 
@@ -203,6 +245,7 @@ def extract_sequence_measures(
                     "f": f,
                     "mean_rt": mean_rt,
                     "mean_log_rt": mean_log_rt,
+                    "reference": reference,
                     "ch_ix": int(ch_ix),
                     "ch_name": CHANNEL_LABELS[ch_ix],
                     "offset": float(offsets[ch_ix]),
@@ -226,6 +269,60 @@ def extract_sequence_measures(
         return None, None, None, None
 
     return df_seq, seq_psd, seq_index, freqs_out
+
+
+def run_reference_pipeline(
+    epochs: mne.Epochs,
+    df_trials: pd.DataFrame,
+    subj_id: int,
+    reference: str,
+):
+    """
+    Run the full sequence-extraction pipeline for one reference scheme.
+    """
+    epochs_ref = get_epochs_for_reference(epochs, reference=reference)
+    epochs_psd = prepare_epochs_for_psd(epochs_ref)
+
+    erp_data_ref = epochs_psd.get_data(copy=True)
+    erp_times_sec_ref = epochs_psd.times.copy()
+    sfreq_psd = float(epochs_psd.info["sfreq"])
+
+    return extract_sequence_measures(
+        erp_data=erp_data_ref,
+        erp_times_sec=erp_times_sec_ref,
+        df_trials=df_trials,
+        subj_id=subj_id,
+        sfreq_psd=sfreq_psd,
+        reference=reference,
+    )
+
+
+def save_reference_outputs(
+    df_seq: pd.DataFrame,
+    seq_psd: list,
+    seq_index: list,
+    freqs: np.ndarray,
+    subj_id: int,
+    reference: str,
+):
+    subj_tag = f"sub-{subj_id:03d}"
+
+    df_seq.to_csv(
+        PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_long_{reference}.csv",
+        index=False,
+    )
+
+    if seq_psd and freqs is not None:
+        np.savez_compressed(
+            PATH_OUT / f"{subj_tag}_seq_psd_channelwise_{reference}.npz",
+            psd=np.stack(seq_psd),
+            freqs=freqs,
+            channels=np.array(CHANNEL_LABELS),
+        )
+        pd.DataFrame(seq_index).to_csv(
+            PATH_OUT / f"{subj_tag}_seq_psd_channelwise_index_{reference}.csv",
+            index=False,
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -278,55 +375,40 @@ def process_subject(dataset: Path):
         verbose=False,
     )
 
-    epochs_csd = compute_current_source_density(epochs.copy(), **CSD_KWARGS)
+    # IMPORTANT:
+    # The loaded data are assumed to already be CAR-referenced.
+    # Therefore:
+    #   - reference='car' uses epochs as loaded
+    #   - reference='csd' computes CSD from those epochs
+    out = []
 
-    # -------------------------------------------------------------------------
-    # Downsample after CSD and before PSD estimation
-    # -------------------------------------------------------------------------
-    if DOWNSAMPLE_BEFORE_PSD:
-        epochs_csd_psd = epochs_csd.copy().resample(
-            TARGET_SFREQ,
-            npad="auto",
-            verbose=False,
+    for reference in REFERENCE_SCHEMES:
+        df_seq, seq_psd, seq_index, freqs = run_reference_pipeline(
+            epochs=epochs,
+            df_trials=df_trials,
+            subj_id=subj_id,
+            reference=reference,
         )
-    else:
-        epochs_csd_psd = epochs_csd
 
-    erp_data_csd = epochs_csd_psd.get_data(copy=True)
-    erp_times_sec_csd = epochs_csd_psd.times.copy()
-    sfreq_psd = float(epochs_csd_psd.info["sfreq"])
+        if df_seq is None or df_seq.empty:
+            continue
 
-    df_seq, seq_psd, seq_index, freqs = extract_sequence_measures(
-        erp_data=erp_data_csd,
-        erp_times_sec=erp_times_sec_csd,
-        df_trials=df_trials,
-        subj_id=subj_id,
-        sfreq_psd=sfreq_psd,
-    )
+        save_reference_outputs(
+            df_seq=df_seq,
+            seq_psd=seq_psd,
+            seq_index=seq_index,
+            freqs=freqs,
+            subj_id=subj_id,
+            reference=reference,
+        )
 
-    if df_seq is None or df_seq.empty:
+        out.append(df_seq)
+
+    if not out:
         return None
 
-    subj_tag = f"sub-{subj_id:03d}"
-
-    df_seq.to_csv(
-        PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_csd.csv", index=False
-    )
-
-    if seq_psd and freqs is not None:
-        np.savez_compressed(
-            PATH_OUT / f"{subj_tag}_seq_psd_channelwise_csd.npz",
-            psd=np.stack(seq_psd),
-            freqs=freqs,
-            channels=np.array(CHANNEL_LABELS),
-        )
-        pd.DataFrame(seq_index).to_csv(
-            PATH_OUT / f"{subj_tag}_seq_psd_channelwise_index_csd.csv",
-            index=False,
-        )
-
-    print(f"Saved subject {subj_id:03d}")
-    return df_seq
+    print(f"Saved subject {subj_id:03d} ({', '.join(REFERENCE_SCHEMES)})")
+    return pd.concat(out, ignore_index=True)
 
 
 # -----------------------------------------------------------------------------
@@ -349,7 +431,7 @@ df_all = pd.concat(seq_data, ignore_index=True)
 # -----------------------------------------------------------------------------
 # Save combined dataframe
 # -----------------------------------------------------------------------------
-combined_file = PATH_OUT / "all_subjects_seq_fooof_rt_channelwise_long_csd.csv"
+combined_file = PATH_OUT / "all_subjects_seq_fooof_rt_channelwise_long_car_csd.csv"
 df_all.to_csv(combined_file, index=False)
 
 print("Finished.")
@@ -357,6 +439,8 @@ print("Saved:", combined_file)
 print("Rows:", len(df_all))
 print("Subjects:", df_all["id"].nunique())
 print("Electrodes:", df_all["ch_name"].nunique())
+print("References:", sorted(df_all["reference"].unique()))
 print(
-    "Sequences:", df_all[["id", "block_nr", "sequence_nr"]].drop_duplicates().shape[0]
+    "Sequences:",
+    df_all[["id", "reference", "block_nr", "sequence_nr"]].drop_duplicates().shape[0],
 )
