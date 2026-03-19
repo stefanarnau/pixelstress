@@ -36,6 +36,8 @@ for dataset in datasets:
     # Reduce to common trials
     df = df_erp[df_erp["trial_nr_total"].isin(to_keep)].copy()
     
+    df = df_tf
+    
     # Binarize accuracy
     df["accuracy"] = (df["accuracy"] == 1).astype(int)
     
