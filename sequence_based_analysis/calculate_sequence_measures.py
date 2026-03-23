@@ -53,7 +53,7 @@ INFO_ERP.set_montage(MONTAGE, on_missing="warn", match_case=False)
 # -----------------------------------------------------------------------------
 # Analysis settings
 # -----------------------------------------------------------------------------
-TIME_WINDOW = (-1.7, 0.0)
+TIME_WINDOW = (-1.4, 0.0)
 MIN_TRIALS_PER_SEQUENCE = 5
 
 # PSD / FOOOF settings

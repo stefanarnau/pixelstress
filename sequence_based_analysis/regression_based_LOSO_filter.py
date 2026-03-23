@@ -50,12 +50,15 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 # User settings
 # -----------------------------------------------------------------------------
-REFERENCE = "car"   # "car" or "csd"
+REFERENCE = "csd"   # "car" or "csd"
 
-MEASURE = "exponent"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
+MEASURE = "theta_flat"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
 
 TARGET_EFFECTS = [
     "f",
+    "f2",
+    "group[T.experimental]",
+    "group[T.experimental]:f",
     "group[T.experimental]:f2",
 ]
 
