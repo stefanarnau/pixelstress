@@ -4,17 +4,10 @@
 #
 # This script extracts, per subject x sequence x channel:
 #
-# 1) Averaged-PSD approach:
-#    - compute PSD trial-wise within sequence
-#    - aggregate PSD across trials
-#    - fit FOOOF to aggregated PSD
-#    - extract exponent / offset / fit metrics / flattened bandpower
-#
-# 2) Trialwise-FOOOF approach:
-#    - compute PSD trial-wise within sequence
-#    - fit FOOOF to each trial PSD
-#    - extract exponent / offset / fit metrics / flattened bandpower per trial
-#    - average those extracted parameters across trials
+# 1) compute PSD trial-wise within sequence
+# 2) aggregate PSD across trials within sequence
+# 3) fit FOOOF to the aggregated PSD
+# 4) extract exponent / offset / fit metrics / flattened bandpower
 #
 # The loaded data are assumed to already be CAR-referenced.
 # No CSD logic is included.
@@ -64,7 +57,7 @@ INFO_ERP.set_montage(MONTAGE, on_missing="warn", match_case=False)
 # -----------------------------------------------------------------------------
 # Analysis settings
 # -----------------------------------------------------------------------------
-TIME_WINDOW = (-2, 0.0)
+TIME_WINDOW = (-2.0, 0.0)
 MIN_TRIALS_PER_SEQUENCE = 5
 
 # PSD / FOOOF settings
@@ -90,7 +83,7 @@ BANDS = {
     "beta": (15, 30),
 }
 
-# Aggregation across trials within sequence for PSD-first approach
+# Aggregation across trials within sequence
 PSD_AGG_MODE = "mean"  # "mean" or "median"
 
 
@@ -98,6 +91,21 @@ PSD_AGG_MODE = "mean"  # "mean" or "median"
 # Helpers
 # -----------------------------------------------------------------------------
 def aggregate_psd(psd: np.ndarray, mode: str = "mean") -> np.ndarray:
+    """
+    Aggregate PSDs across trials within a sequence.
+
+    Parameters
+    ----------
+    psd : np.ndarray
+        Shape: trials x channels x freqs
+    mode : str
+        'mean' or 'median'
+
+    Returns
+    -------
+    np.ndarray
+        Shape: channels x freqs
+    """
     if mode == "mean":
         return psd.mean(axis=0)
     if mode == "median":
@@ -141,39 +149,6 @@ def compute_flattened_bandpowers(
             float(np.mean(flat[band_mask])) if np.any(band_mask) else np.nan
         )
     return out
-
-
-def fit_fooof_single_spectrum(psd_1d: np.ndarray, freqs: np.ndarray):
-    """
-    Fit FOOOF to one 1D PSD vector and return scalar fit outputs.
-    """
-    fm = fooof.FOOOF(**FOOOF_KWARGS)
-    fm.fit(freqs, psd_1d, [FMIN_FIT, FMAX_FIT])
-
-    aperiodic = fm.get_params("aperiodic_params")
-    r2 = float(fm.get_params("r_squared"))
-    err = float(fm.get_params("error"))
-
-    offset = float(aperiodic[0])
-    exponent = float(aperiodic[1])
-
-    band_vals = compute_flattened_bandpowers(
-        psd_1d=psd_1d,
-        freqs=freqs,
-        offset=offset,
-        exponent=exponent,
-        bands=BANDS,
-    )
-
-    return {
-        "offset": offset,
-        "exponent": exponent,
-        "r2": r2,
-        "error": err,
-        "theta_flat": band_vals["theta_flat"],
-        "alpha_flat": band_vals["alpha_flat"],
-        "beta_flat": band_vals["beta_flat"],
-    }
 
 
 # -----------------------------------------------------------------------------
@@ -234,7 +209,7 @@ def extract_sequence_measures(
 
         freqs_out = freqs
 
-        # Save aggregated PSD object as before
+        # Aggregate PSD across trials within sequence
         psd_seq = aggregate_psd(psd, mode=PSD_AGG_MODE)  # channels x freqs
         seq_psd.append(psd_seq)
         seq_index.append(
@@ -253,57 +228,24 @@ def extract_sequence_measures(
             }
         )
 
-        # ---------------------------------------------------------------------
-        # 1) Averaged-PSD -> FOOOF
-        # ---------------------------------------------------------------------
+        # Fit FOOOF once per channel on sequence-aggregated PSD
         fg = fooof.FOOOFGroup(**FOOOF_KWARGS)
         fg.fit(freqs, psd_seq, [FMIN_FIT, FMAX_FIT])
 
-        aperiodic_avgpsd = fg.get_params("aperiodic_params")
-        r2_avgpsd = fg.get_params("r_squared")
-        err_avgpsd = fg.get_params("error")
+        aperiodic = fg.get_params("aperiodic_params")
+        r2_vals = fg.get_params("r_squared")
+        err_vals = fg.get_params("error")
 
-        offsets_avgpsd = aperiodic_avgpsd[:, 0]
-        exponents_avgpsd = aperiodic_avgpsd[:, 1]
+        offsets = aperiodic[:, 0]
+        exponents = aperiodic[:, 1]
 
-        # ---------------------------------------------------------------------
-        # 2) Trialwise FOOOF -> average extracted parameters
-        # ---------------------------------------------------------------------
-        # For each channel, collect trialwise fit outputs, then average over trials
-        trialavg_by_channel = []
-
-        for ch_ix in range(psd.shape[1]):
-            ch_trial_results = []
-
-            for trial_ix in range(psd.shape[0]):
-                res = fit_fooof_single_spectrum(
-                    psd_1d=psd[trial_ix, ch_ix, :],
-                    freqs=freqs,
-                )
-                ch_trial_results.append(res)
-
-            df_trial = pd.DataFrame(ch_trial_results)
-            trialavg_by_channel.append(
-                {
-                    "offset_trialavg": float(df_trial["offset"].mean()),
-                    "exponent_trialavg": float(df_trial["exponent"].mean()),
-                    "r2_trialavg": float(df_trial["r2"].mean()),
-                    "error_trialavg": float(df_trial["error"].mean()),
-                    "theta_flat_trialavg": float(df_trial["theta_flat"].mean()),
-                    "alpha_flat_trialavg": float(df_trial["alpha_flat"].mean()),
-                    "beta_flat_trialavg": float(df_trial["beta_flat"].mean()),
-                }
-            )
-
-        # ---------------------------------------------------------------------
         # Build output rows
-        # ---------------------------------------------------------------------
         for ch_ix in range(psd_seq.shape[0]):
-            avgpsd_band_vals = compute_flattened_bandpowers(
+            band_vals = compute_flattened_bandpowers(
                 psd_1d=psd_seq[ch_ix],
                 freqs=freqs,
-                offset=float(offsets_avgpsd[ch_ix]),
-                exponent=float(exponents_avgpsd[ch_ix]),
+                offset=float(offsets[ch_ix]),
+                exponent=float(exponents[ch_ix]),
                 bands=BANDS,
             )
 
@@ -320,26 +262,13 @@ def extract_sequence_measures(
                 "mean_log_rt": mean_log_rt,
                 "ch_ix": int(ch_ix),
                 "ch_name": CHANNEL_LABELS[ch_ix],
-
-                # ---------------------------
-                # Averaged PSD -> FOOOF
-                # ---------------------------
-                "offset_avgpsd": float(offsets_avgpsd[ch_ix]),
-                "exponent_avgpsd": float(exponents_avgpsd[ch_ix]),
-                "r2_avgpsd": float(r2_avgpsd[ch_ix]),
-                "error_avgpsd": float(err_avgpsd[ch_ix]),
-                "theta_flat_avgpsd": avgpsd_band_vals["theta_flat"],
-                "alpha_flat_avgpsd": avgpsd_band_vals["alpha_flat"],
-                "beta_flat_avgpsd": avgpsd_band_vals["beta_flat"],
-
-                # ---------------------------
-                # Trialwise FOOOF -> average
-                # ---------------------------
-                **trialavg_by_channel[ch_ix],
-
-                # ---------------------------
-                # Metadata
-                # ---------------------------
+                "offset": float(offsets[ch_ix]),
+                "exponent": float(exponents[ch_ix]),
+                "r2": float(r2_vals[ch_ix]),
+                "error": float(err_vals[ch_ix]),
+                "theta_flat": band_vals["theta_flat"],
+                "alpha_flat": band_vals["alpha_flat"],
+                "beta_flat": band_vals["beta_flat"],
                 "fmin_fit": FMIN_FIT,
                 "fmax_fit": FMAX_FIT,
                 "mt_bandwidth": MT_BANDWIDTH,
@@ -394,7 +323,7 @@ def save_outputs(
     subj_tag = f"sub-{subj_id:03d}"
 
     df_seq.to_csv(
-        PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_long_car_dualmethod.csv",
+        PATH_OUT / f"{subj_tag}_seq_fooof_rt_channelwise_long_car.csv",
         index=False,
     )
 
@@ -443,9 +372,9 @@ def process_subject(dataset: Path):
     df_trials = df_trials.loc[keep_mask].reset_index(drop=True)
     erp_data = erp_data[keep_mask, :, :]
 
-    keep_mask = df_trials["accuracy"] == 1
-    df_trials = df_trials.loc[keep_mask].reset_index(drop=True)
-    erp_data = erp_data[keep_mask, :, :]
+    #keep_mask = df_trials["accuracy"] == 1
+    #df_trials = df_trials.loc[keep_mask].reset_index(drop=True)
+    #erp_data = erp_data[keep_mask, :, :]
 
     if len(df_trials) != erp_data.shape[0]:
         raise ValueError(
@@ -503,7 +432,7 @@ df_all = pd.concat(seq_data, ignore_index=True)
 # -----------------------------------------------------------------------------
 # Save combined dataframe
 # -----------------------------------------------------------------------------
-combined_file = PATH_OUT / "all_subjects_seq_fooof_rt_channelwise_long_car_dualmethod.csv"
+combined_file = PATH_OUT / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 df_all.to_csv(combined_file, index=False)
 
 print("Finished.")
