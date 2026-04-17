@@ -5,24 +5,24 @@
 # --------
 # For one chosen EEG measure and one or more chosen target effects:
 #
-#   1. Select one reference scheme: CAR or CSD
-#   2. Build sequence x electrode matrices from the long summary dataframe
-#   3. For each held-out subject (LOSO):
+#   1. Build sequence x electrode matrices from the long summary dataframe
+#   2. For each held-out subject (LOSO):
 #        - derive an effect-specific multivariate spatial filter on training data
 #        - nuisance regression: half + mean_trial_difficulty
 #        - within-subject centering
 #        - ridge regression across all electrodes simultaneously
 #        - apply the filter to held-out sequences
-#   4. Fit a final MLM on the out-of-fold component scores
-#   5. Load the saved PSD .npz + matching index CSV files
-#   6. Apply the mean LOSO filter / mean LOSO Haufe pattern to the PSDs
-#   7. Plot binned filter-weighted spectra as a function of f, split by group
+#   3. Fit a final MLM on the out-of-fold component scores
+#   4. Load the saved PSD .npz + matching index CSV files
+#   5. Apply the mean LOSO filter / mean LOSO Haufe pattern to the PSDs
+#   6. Plot binned filter-weighted spectra as a function of f, split by group
 #
 # Notes
 # -----
 # - Regression weights are used for scoring.
 # - Haufe patterns are for interpretation and spectral visualization.
 # - Spectrum plots are descriptive.
+# - This script assumes CAR data only.
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -41,7 +41,7 @@ from sklearn.linear_model import Ridge
 # Paths
 # -----------------------------------------------------------------------------
 PATH_IN = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
-FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car_csd.csv"
+FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 
 PATH_OUT = PATH_IN / "loso_supervised_spatial_filter"
 PATH_OUT.mkdir(parents=True, exist_ok=True)
@@ -50,9 +50,7 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 # User settings
 # -----------------------------------------------------------------------------
-REFERENCE = "csd"   # "car" or "csd"
-
-MEASURE = "theta_flat"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
+MEASURE = "beta_flat"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
 
 TARGET_EFFECTS = [
     "f",
@@ -141,23 +139,59 @@ def safe_name(text: str) -> str:
         .replace(")", "")
     )
 
+
+def align_filter_table_to_anchor(
+    df_filters: pd.DataFrame,
+    electrodes: list[str],
+    value_col: str,
+) -> pd.DataFrame:
+    """
+    Align fold-specific filter vectors to a common sign anchor using only
+    LOSO fold outputs.
+    """
+    if df_filters.empty:
+        return df_filters.copy()
+
+    wide = (
+        df_filters.pivot(index="held_out_subject", columns="electrode", values=value_col)
+        .reindex(columns=electrodes)
+        .sort_index()
+    )
+
+    subjects = wide.index.tolist()
+    X = wide.to_numpy(dtype=float)
+
+    if X.shape[0] == 0:
+        return df_filters.copy()
+
+    X_aligned = X.copy()
+    anchor = X_aligned[0, :].copy()
+
+    for i in range(1, X_aligned.shape[0]):
+        xi = X_aligned[i, :].copy()
+
+        valid = np.isfinite(xi) & np.isfinite(anchor)
+        if valid.sum() > 1:
+            r = np.corrcoef(xi[valid], anchor[valid])[0, 1]
+            if np.isfinite(r) and r < 0:
+                xi = -xi
+
+        X_aligned[i, :] = xi
+        anchor = np.nanmean(X_aligned[: i + 1, :], axis=0)
+
+    wide_aligned = pd.DataFrame(X_aligned, index=subjects, columns=electrodes)
+    wide_aligned.index.name = "held_out_subject"
+
+    df_out = (
+        wide_aligned
+        .reset_index()
+        .melt(id_vars="held_out_subject", var_name="electrode", value_name=value_col)
+    )
+
+    return df_out
+
+
 def make_spectral_weights(weight_vec: np.ndarray, mode: str = "squared") -> np.ndarray:
-    """
-    Convert a signed spatial vector into nonnegative weights for descriptive
-    PSD averaging.
-
-    Parameters
-    ----------
-    weight_vec : array, shape (n_channels,)
-        Signed regression filter or Haufe pattern.
-    mode : {"abs", "squared"}
-        How to convert signed values to nonnegative weights.
-
-    Returns
-    -------
-    w_spec : array, shape (n_channels,)
-        Nonnegative weights summing to 1.
-    """
     w = np.asarray(weight_vec, dtype=float)
     w = np.nan_to_num(w, nan=0.0)
 
@@ -173,6 +207,7 @@ def make_spectral_weights(weight_vec: np.ndarray, mode: str = "squared") -> np.n
         raise RuntimeError("Spectral weights sum to zero.")
 
     return w_spec / s
+
 
 def fit_mixedlm_with_fallback(df_model: pd.DataFrame, formula: str, re_formulas: list[str]):
     fit = None
@@ -392,21 +427,6 @@ def fit_supervised_filter(X_train: np.ndarray, meta_train: pd.DataFrame, target_
         a = a / a_norm
 
     return w, a
-
-
-def align_to_reference(vec: np.ndarray, ref: np.ndarray | None) -> np.ndarray:
-    if ref is None:
-        return vec
-
-    valid = np.isfinite(vec) & np.isfinite(ref)
-    if valid.sum() <= 1:
-        return vec
-
-    r = np.corrcoef(vec[valid], ref[valid])[0, 1]
-    if np.isfinite(r) and r < 0:
-        return -vec
-
-    return vec
 
 
 def compute_available_scores(X_test: np.ndarray, w: np.ndarray, min_filter_mass: float):
@@ -634,7 +654,13 @@ def plot_score_curves_with_counts(df_model: pd.DataFrame, fit, outcome_name: str
     plt.close(fig)
 
 
-def run_loso_fold(held_out_subject, df_base: pd.DataFrame, measure: str, electrodes: list[str], target_effect: str, w_ref=None, a_ref=None):
+def run_loso_fold(
+    held_out_subject,
+    df_base: pd.DataFrame,
+    measure: str,
+    electrodes: list[str],
+    target_effect: str,
+):
     sid = str(held_out_subject)
 
     df_train = df_base[df_base["id"].astype(str) != sid].copy()
@@ -657,9 +683,6 @@ def run_loso_fold(held_out_subject, df_base: pd.DataFrame, measure: str, electro
         )
     except Exception as exc:
         return {"status": f"filter_fit_failed: {exc}", "held_out_subject": sid}
-
-    w = align_to_reference(w, w_ref)
-    a = align_to_reference(a, a_ref)
 
     scores, retained_mass, n_available = compute_available_scores(
         X_test=X_test,
@@ -699,8 +722,8 @@ def run_loso_fold(held_out_subject, df_base: pd.DataFrame, measure: str, electro
 # -----------------------------------------------------------------------------
 # PSD loading + plotting
 # -----------------------------------------------------------------------------
-def load_all_subject_psds(reference: str):
-    npz_files = sorted(PATH_IN.glob(f"sub-*_seq_psd_channelwise_{reference}.npz"))
+def load_all_subject_psds():
+    npz_files = sorted(PATH_IN.glob("sub-*_seq_psd_channelwise_car.npz"))
 
     psd_blocks = []
     meta_blocks = []
@@ -708,14 +731,14 @@ def load_all_subject_psds(reference: str):
     channels_ref = None
 
     for npz_file in npz_files:
-        subj_tag = npz_file.stem.replace(f"_seq_psd_channelwise_{reference}", "")
-        index_file = PATH_IN / f"{subj_tag}_seq_psd_channelwise_index_{reference}.csv"
+        subj_tag = npz_file.stem.replace("_seq_psd_channelwise_car", "")
+        index_file = PATH_IN / f"{subj_tag}_seq_psd_channelwise_index_car.csv"
 
         if not index_file.exists():
             continue
 
         arr = np.load(npz_file, allow_pickle=True)
-        psd = arr["psd"]          # shape: n_seq x n_ch x n_freq
+        psd = arr["psd"]
         freqs = arr["freqs"]
         channels = arr["channels"].astype(str)
 
@@ -745,7 +768,7 @@ def load_all_subject_psds(reference: str):
         meta_blocks.append(meta)
 
     if len(psd_blocks) == 0:
-        raise RuntimeError(f"No PSD files found for reference={reference}")
+        raise RuntimeError("No PSD files found.")
 
     psd_all = np.concatenate(psd_blocks, axis=0)
     meta_all = pd.concat(meta_blocks, ignore_index=True)
@@ -765,16 +788,7 @@ def plot_binned_filter_weighted_spectra(
     use_log10: bool = True,
     spectral_weight_mode: str = "squared",
 ):
-    """
-    Descriptive PSD plot using nonnegative magnitude-based weights derived from
-    the signed filter/pattern.
-
-    psd_all : n_seq x n_ch x n_freq
-    weight_vec : length n_ch, aligned to channels
-    """
     w_spec = make_spectral_weights(weight_vec, mode=spectral_weight_mode)
-
-    # convex weighted average across electrodes
     weighted_psd = np.einsum("c,ncf->nf", w_spec, psd_all)
 
     if use_log10:
@@ -934,7 +948,6 @@ df_raw = pd.read_csv(FILE_IN)
 required_cols = [
     "id",
     "group",
-    "reference",
     "ch_name",
     "block_nr",
     "sequence_nr",
@@ -960,10 +973,7 @@ df_raw["id"] = df_raw["id"].astype(str)
 df_raw["group"] = df_raw["group"].astype("category")
 df_raw["group"] = df_raw["group"].cat.set_categories(["control", "experimental"])
 df_raw["half"] = df_raw["half"].astype("category")
-df_raw["reference"] = df_raw["reference"].astype("category")
 df_raw["ch_name"] = df_raw["ch_name"].astype(str)
-
-df_raw = df_raw[df_raw["reference"].astype(str) == REFERENCE].copy()
 
 if APPLY_QC:
     n_before = len(df_raw)
@@ -989,7 +999,6 @@ info = mne.create_info(
 montage = mne.channels.make_standard_montage("standard_1020")
 info.set_montage(montage, on_missing="warn", match_case=False)
 
-print(f"Reference: {REFERENCE}")
 print(f"Measure: {MEASURE}")
 print(f"Subjects: {df_raw['id'].nunique()}")
 print(f"Electrodes: {len(electrodes)}")
@@ -999,11 +1008,10 @@ print(f"Sequences: {df_raw[SEQ_ID_COLS].drop_duplicates().shape[0]}")
 # -----------------------------------------------------------------------------
 # Load PSDs once
 # -----------------------------------------------------------------------------
-psd_all, freqs_psd, channels_psd, psd_meta = load_all_subject_psds(REFERENCE)
+psd_all, freqs_psd, channels_psd, psd_meta = load_all_subject_psds()
 psd_meta["id"] = psd_meta["id"].astype(str)
 psd_meta["group"] = psd_meta["group"].astype(str)
 
-# align PSD channel order to analysis electrode order
 channel_to_idx = {ch: i for i, ch in enumerate(channels_psd)}
 missing_channels = [ch for ch in electrodes if ch not in channel_to_idx]
 if missing_channels:
@@ -1023,33 +1031,8 @@ for target_effect in TARGET_EFFECTS:
     print(f"Running target effect: {target_effect}")
 
     effect_safe = safe_name(target_effect)
-    combo_dir = PATH_OUT / REFERENCE / MEASURE / effect_safe
+    combo_dir = PATH_OUT / MEASURE / effect_safe
     combo_dir.mkdir(parents=True, exist_ok=True)
-
-    # full-data reference vectors for sign alignment and descriptive maps
-    _, meta_full, X_full = build_sequence_wide(df_raw, measure=MEASURE, electrodes=electrodes)
-    if X_full is None:
-        raise RuntimeError("No sequence x electrode matrix could be built.")
-
-    w_ref, a_ref = fit_supervised_filter(
-        X_train=X_full,
-        meta_train=meta_full,
-        target_effect=target_effect,
-        alpha=RIDGE_ALPHA,
-    )
-
-    save_topomap(
-        values=w_ref,
-        info=info,
-        title=f"Full-data regression filter\n{target_effect}",
-        out_file=combo_dir / f"{MEASURE}_full_data_filter_{effect_safe}.png",
-    )
-    save_topomap(
-        values=a_ref,
-        info=info,
-        title=f"Full-data Haufe pattern\n{target_effect}",
-        out_file=combo_dir / f"{MEASURE}_full_data_haufe_{effect_safe}.png",
-    )
 
     subjects = sorted(df_raw["id"].unique().tolist())
 
@@ -1064,8 +1047,6 @@ for target_effect in TARGET_EFFECTS:
             measure=MEASURE,
             electrodes=electrodes,
             target_effect=target_effect,
-            w_ref=w_ref,
-            a_ref=a_ref,
         )
         for sid in subjects
     )
@@ -1099,11 +1080,22 @@ for target_effect in TARGET_EFFECTS:
     df_weights = pd.concat(weight_list, ignore_index=True)
     df_patterns = pd.concat(pattern_list, ignore_index=True)
 
+    df_weights = align_filter_table_to_anchor(
+        df_filters=df_weights,
+        electrodes=electrodes,
+        value_col="weight",
+    )
+
+    df_patterns = align_filter_table_to_anchor(
+        df_filters=df_patterns,
+        electrodes=electrodes,
+        value_col="haufe_pattern",
+    )
+
     df_scores.to_csv(combo_dir / f"{MEASURE}_loso_scores_{effect_safe}.csv", index=False)
     df_weights.to_csv(combo_dir / f"{MEASURE}_loso_weights_{effect_safe}.csv", index=False)
     df_patterns.to_csv(combo_dir / f"{MEASURE}_loso_haufe_patterns_{effect_safe}.csv", index=False)
 
-    # stability
     df_pair_w, df_stab_w = compute_filter_stability(
         df_filters=df_weights,
         electrodes=electrodes,
@@ -1126,7 +1118,6 @@ for target_effect in TARGET_EFFECTS:
         df_stab_a["kind"] = "haufe"
         df_stab_a.to_csv(combo_dir / f"{MEASURE}_haufe_stability_summary_{effect_safe}.csv", index=False)
 
-    # mean LOSO vectors
     df_mean_w = (
         df_weights.groupby("electrode", as_index=False)["weight"]
         .mean()
@@ -1158,7 +1149,6 @@ for target_effect in TARGET_EFFECTS:
         out_file=combo_dir / f"{MEASURE}_mean_loso_haufe_{effect_safe}.png",
     )
 
-    # final MLM
     d_final = df_scores.copy()
     d_final["id"] = d_final["id"].astype("category")
     d_final["group"] = d_final["group"].astype("category")
@@ -1219,7 +1209,6 @@ for target_effect in TARGET_EFFECTS:
             "aic": fit.aic if np.isfinite(fit.aic) else np.nan,
             "bic": fit.bic if np.isfinite(fit.bic) else np.nan,
             "measure": MEASURE,
-            "reference": REFERENCE,
             "target_effect": target_effect,
             "ridge_alpha": RIDGE_ALPHA,
             "min_retained_filter_mass": MIN_RETAINED_FILTER_MASS,
@@ -1246,7 +1235,6 @@ for target_effect in TARGET_EFFECTS:
 
     with open(combo_dir / f"{MEASURE}_final_mlm_{effect_safe}.txt", "w") as f:
         f.write("Final MLM on LOSO out-of-fold component scores\n")
-        f.write(f"Reference: {REFERENCE}\n")
         f.write(f"Measure: {MEASURE}\n")
         f.write(f"Target effect used to derive filter: {target_effect}\n")
         f.write(f"Ridge alpha: {RIDGE_ALPHA}\n")
@@ -1263,15 +1251,10 @@ for target_effect in TARGET_EFFECTS:
         n_bins=N_BINS_PLOT,
     )
 
-    # -------------------------------------------------------------------------
-    # PSD plots
-    # -------------------------------------------------------------------------
-    # Align PSD metadata to current filtered subject set
     keep_ids = set(df_raw["id"].astype(str).unique())
     psd_meta_use = psd_meta[psd_meta["id"].astype(str).isin(keep_ids)].copy()
     psd_all_use = psd_all[psd_meta_use.index.to_numpy(), :, :]
 
-    # choose vector source
     if PSD_WEIGHT_SOURCE == "haufe":
         spectral_vec = mean_a.copy()
         vec_label = "haufe"
@@ -1321,7 +1304,7 @@ for target_effect in TARGET_EFFECTS:
 # -----------------------------------------------------------------------------
 if len(all_final_results) > 0:
     df_master = pd.concat(all_final_results, ignore_index=True)
-    out_master = PATH_OUT / REFERENCE / MEASURE / "master_final_results.csv"
+    out_master = PATH_OUT / MEASURE / "master_final_results.csv"
     out_master.parent.mkdir(parents=True, exist_ok=True)
     df_master.to_csv(out_master, index=False)
     print("\nSaved master summary:")

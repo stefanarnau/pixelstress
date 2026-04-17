@@ -18,7 +18,7 @@ path_out = Path("/mnt/data_dump/pixelstress/7_rt_models/")
 path_out.mkdir(parents=True, exist_ok=True)
 
 
-file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_csd.csv"
+file_in = path_in / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 
 # -----------------------------------------------------------------------------
 # Settings

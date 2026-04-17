@@ -72,7 +72,7 @@ MT_NORMALIZATION = "full"
 FOOOF_KWARGS = dict(
     aperiodic_mode="fixed",
     peak_width_limits=(2, 12),
-    max_n_peaks=8,
+    max_n_peaks=12,
     min_peak_height=0.05,
     verbose=False,
 )
