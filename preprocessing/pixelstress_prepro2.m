@@ -5,7 +5,7 @@ PATH_EEGLAB = '/home/plkn/eeglab2025.0.0/';
 PATH_RAW = '/mnt/data_dump/pixelstress/0_eeg_raw/';
 PATH_CONTROL_FILES = '/mnt/data_dump/pixelstress/0_control_files/';
 PATH_ICSET = '/mnt/data_dump/pixelstress/1_icset_45/';
-PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned_45/';
+PATH_AUTOCLEANED = '/mnt/data_dump/pixelstress/2_autocleaned2/';
 
 
 subject_list = {'9_1',...
@@ -83,6 +83,8 @@ subject_list = {'9_1',...
                 '98_2',...
                 '18_2'
                };
+
+subject_list = {'18_2'};
 
 % Failed:
 % '18_2' something with ICA
@@ -280,16 +282,13 @@ for s = 1 : length(subject_list)
     % Add channel locations
     EEG = pop_chanedit(EEG, 'lookup', channel_location_file);
 
-    % Reref to CPz, so that FCz obtains non-interpolated data
-    EEG = pop_reref(EEG, 'CPz');
-
     % Save original channel locations (for later interpolation, but without CPz)
-    EEG.chanlocs_original = EEG.chanlocs;
+    EEG.chanlocs_to_interpolate = EEG.chanlocs;
 
     % For VP 18, remove Fp1 & Fp2
-    if subject_id == 18
-        EEG = pop_select(EEG, 'nochannel', [1, 2]);
-    end
+    %if subject_id == 18
+    %    EEG = pop_select(EEG, 'nochannel', [1, 2]);
+    %end
 
     % Resample data
     EEG = pop_resample(EEG, 500);
@@ -299,39 +298,13 @@ for s = 1 : length(subject_list)
     EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 80], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
     EEG_TF = pop_basicfilter(EEG_TF, [1 : EEG_TF.nbchan], 'Cutoff', [   1, 45], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary');
         
-    % Bad channel detection
-    [EEG, EEG.chans_rejected]       = pop_rejchan(EEG,    'elec', [1 : EEG.nbchan],    'threshold', 5, 'norm', 'on', 'measure', 'kurt');
-    [EEG_TF, EEG_TF.chans_rejected] = pop_rejchan(EEG_TF, 'elec', [1 : EEG_TF.nbchan], 'threshold', 5, 'norm', 'on', 'measure', 'kurt');
+    % Bad channel detection (Excluding zero-line FCz)
+    [EEG, EEG.chans_rejected]       = pop_rejchan(EEG,    'elec', [1 : 64],    'threshold', 5, 'norm', 'on', 'measure', 'kurt');
+    [EEG_TF, EEG_TF.chans_rejected] = pop_rejchan(EEG_TF, 'elec', [1 : 64], 'threshold', 5, 'norm', 'on', 'measure', 'kurt');
 
-    % Interpolate channels (Not CPz)
-    EEG    = pop_interp(EEG,    EEG.chanlocs_original,    'spherical');
-    EEG_TF = pop_interp(EEG_TF, EEG_TF.chanlocs_original, 'spherical');
-
-    % Now add CPz as empty channel
-    EEG.data(end+1, :) = 0;
-    EEG.nbchan = size(EEG.data, 1);
-
-    % Add full chanloc struct
-    EEG.chanlocs(end+1) = struct( ...
-        'labels', 'CPz', ...
-        'theta', [], ...
-        'radius', [], ...
-        'X', [], ...
-        'Y', [], ...
-        'Z', [], ...
-        'sph_theta', [], ...
-        'sph_phi', [], ...
-        'sph_radius', [], ...
-        'type', 'EEG', ...
-        'ref', '', ...
-        'urchan', [] );
-
-    EEG = eeg_checkset(EEG);
-
-    % Add channel again to obtain CPz location
-    EEG = pop_chanedit(EEG, 'lookup', channel_location_file);
-
-    aa=bb
+    % Interpolate channels
+    EEG    = pop_interp(EEG,    EEG.chanlocs_to_interpolate,    'spherical');
+    EEG_TF = pop_interp(EEG_TF, EEG_TF.chanlocs_to_interpolate, 'spherical');
 
     % Reref common average
     EEG    = pop_reref(EEG,    []);

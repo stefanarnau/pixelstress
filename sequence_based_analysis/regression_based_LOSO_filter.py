@@ -50,7 +50,7 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 # User settings
 # -----------------------------------------------------------------------------
-MEASURE = "beta_flat"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
+MEASURE = "exponent"   # "exponent", "theta_flat", "alpha_flat", "beta_flat"
 
 TARGET_EFFECTS = [
     "f",

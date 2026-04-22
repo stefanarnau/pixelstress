@@ -13,7 +13,7 @@ import statsmodels.formula.api as smf
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
+path_in = Path("/mnt/data_dump/pixelstress/3_sequence_data2/")
 path_out = Path("/mnt/data_dump/pixelstress/7_rt_models/")
 path_out.mkdir(parents=True, exist_ok=True)
 

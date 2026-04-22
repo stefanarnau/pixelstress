@@ -27,8 +27,8 @@ from mne.time_frequency import psd_array_multitaper
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-PATH_IN = Path("/mnt/data_dump/pixelstress/2_autocleaned_45/")
-PATH_OUT = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
+PATH_IN = Path("/mnt/data_dump/pixelstress/2_autocleaned2/")
+PATH_OUT = Path("/mnt/data_dump/pixelstress/3_sequence_data2/")
 PATH_OUT.mkdir(parents=True, exist_ok=True)
 
 DATASETS = sorted(PATH_IN.glob("*erp.set"))
@@ -71,8 +71,8 @@ MT_NORMALIZATION = "full"
 
 FOOOF_KWARGS = dict(
     aperiodic_mode="fixed",
-    peak_width_limits=(2, 12),
-    max_n_peaks=12,
+    peak_width_limits=(1, 8),
+    max_n_peaks=8,
     min_peak_height=0.05,
     verbose=False,
 )

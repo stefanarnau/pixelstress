@@ -13,7 +13,7 @@ import statsmodels.formula.api as smf
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-PATH_IN = Path("/mnt/data_dump/pixelstress/3_sequence_data/")
+PATH_IN = Path("/mnt/data_dump/pixelstress/3_sequence_data2/")
 PATH_OUT = Path("/mnt/data_dump/pixelstress/roi_models/")
 PATH_OUT.mkdir(parents=True, exist_ok=True)
 
@@ -24,8 +24,8 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # User settings
 # -----------------------------------------------------------------------------
 #exponent strongest at CPz, Pz (Cz)
-MEASURE = "alpha_flat"   # "theta_flat", "alpha_flat", "beta_flat", "exponent"
-ROI = ["CPz", "Cz"]
+MEASURE = "exponent"   # "theta_flat", "alpha_flat", "beta_flat", "exponent"
+ROI = ["Cz"]
 ROI_NAME = "central_exponent"
 
 N_BINS = 9
