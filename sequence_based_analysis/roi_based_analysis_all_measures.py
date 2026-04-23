@@ -1,19 +1,20 @@
 # -----------------------------------------------------------------------------
 # Slim ROI mixed model + feedback plots with:
-# 1) observed/model feedback curves
+# 1) observed/model feedback curves for multiple measures
 # 2) ROI ERP by feedback bin
 # 3) ROI TF maps by feedback bin
 # 4) raw PSD by feedback bin
 # 5) flattened spectrum by feedback bin
-# 6) 1/f fits by feedback bin
+# 6) exponent swarm plot by feedback bin
 #
 # Notes:
-# - MEASURE can be:
-#     "slow_drift_mean", "theta_flat", "alpha_flat", "beta_flat",
-#     "exponent", "offset", or any saved TF summary column such as "tf_alpha_pre"
-# - ERP is plotted if saved ERP files are present
-# - TF maps are plotted if saved TF files are present
-# - Spectral plots are plotted if PSD / aperiodic information is available
+# - MEASURES is a list of dependent variables for MLMs
+# - For each measure:
+#     * fit MLM
+#     * save coefficient table rows into one combined dataframe
+#     * create a feedback/model fit plot
+# - ERP / TF / PSD / flattened / exponent swarm are made once only,
+#   using PLOT_MEASURE only for titles / filenames
 # -----------------------------------------------------------------------------
 
 from pathlib import Path
@@ -39,16 +40,30 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 # User settings
 # -----------------------------------------------------------------------------
-MEASURE = "tf_theta_pre"   # e.g. "slow_drift_mean", "alpha_flat", "exponent", "tf_alpha_pre"
-ROI = ["FCz"]
-ROI_NAME = "Cz_roi"
+MEASURES = [
+    "mean_rt",
+    "tf_theta_pre",
+    "tf_alpha_pre",
+    "tf_beta_pre",
+    "slow_drift_mean",
+    "theta_flat",
+    "alpha_flat",
+    "beta_flat",
+    "exponent",
+]
+
+# Used only for shared plots that are not re-run for every modeled measure
+PLOT_MEASURE = "tf_theta_pre"
+
+ROI = ["Cz", "C1", "C2"]
+ROI_NAME = "central ROI"
 
 N_BINS = 9
 
-ERP_PLOT_TMIN = -2.0
+ERP_PLOT_TMIN = -1.4
 ERP_PLOT_TMAX = 0.0
 
-TF_PLOT_TMIN = -2.0
+TF_PLOT_TMIN = -1.4
 TF_PLOT_TMAX = 0.0
 TF_PLOT_FMIN = 2.0
 TF_PLOT_FMAX = 30.0
@@ -61,9 +76,6 @@ RAW_PSD_PLOT_FMAX = 20.0
 
 FLAT_PLOT_FMIN = 1.0
 FLAT_PLOT_FMAX = 20.0
-
-FIT_PLOT_FMIN = 1.0
-FIT_PLOT_FMAX = 20.0
 
 FORMULA = """
 roi_val ~ group * f + group * f2
@@ -92,6 +104,7 @@ CORR_MEASURES = [
     "tf_alpha_pre",
     "tf_beta_pre",
 ]
+
 
 # -----------------------------------------------------------------------------
 # MixedLM helper
@@ -238,72 +251,8 @@ def load_sequence_erp_long(path_in, roi):
 
     return pd.concat(erp_rows, ignore_index=True), times_ref
 
-def plot_correlation_matrix(
-    df_in,
-    measures,
-    title,
-    method="pearson",
-    path_out=None,
-    file_tag=None,
-):
-    cols = [c for c in measures if c in df_in.columns]
-    if len(cols) < 2:
-        print(f"Not enough measures available for correlation: {cols}")
-        return None
-
-    d = df_in[cols].apply(pd.to_numeric, errors="coerce")
-
-    # keep rows with at least 2 non-missing values
-    d = d.dropna(how="all")
-    if d.empty:
-        print("No usable data for correlation matrix.")
-        return None
-
-    corr = d.corr(method=method)
-
-    fig, ax = plt.subplots(figsize=(0.8 * len(cols) + 3, 0.8 * len(cols) + 3))
-
-    im = ax.imshow(corr.values, vmin=-1, vmax=1, cmap="coolwarm")
-
-    ax.set_xticks(np.arange(len(cols)))
-    ax.set_yticks(np.arange(len(cols)))
-    ax.set_xticklabels(cols, rotation=45, ha="right")
-    ax.set_yticklabels(cols)
-
-    for i in range(len(cols)):
-        for j in range(len(cols)):
-            val = corr.values[i, j]
-            if np.isfinite(val):
-                ax.text(
-                    j, i, f"{val:.2f}",
-                    ha="center", va="center",
-                    fontsize=9,
-                    color="black",
-                )
-
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(f"{method} r")
-
-    ax.set_title(title)
-    plt.tight_layout()
-
-    if path_out is not None and file_tag is not None:
-        fig.savefig(
-            path_out / f"{file_tag}.png",
-            dpi=150,
-            bbox_inches="tight",
-        )
-        corr.to_csv(path_out / f"{file_tag}.csv")
-
-    plt.show()
-
-    return corr
 
 def load_sequence_tf_long(path_in, roi):
-    """
-    Load saved per-subject sequence TF files and return one row per
-    subject x block x sequence x group with ROI-averaged TF matrix.
-    """
     tf_rows = []
     index_files = sorted(path_in.glob("sub-*_seq_tf_channelwise_index_car.csv"))
 
@@ -322,7 +271,7 @@ def load_sequence_tf_long(path_in, roi):
         idx_df = pd.read_csv(idx_file)
         npz = np.load(npz_file, allow_pickle=True)
 
-        tf = npz["tf"]           # sequences x channels x freqs x times
+        tf = npz["tf"]
         freqs = npz["freqs"]
         times = npz["times"]
         channels = npz["channels"].astype(str)
@@ -346,7 +295,7 @@ def load_sequence_tf_long(path_in, roi):
                 f"Mismatch for {subj_tag}: TF sequences={tf.shape[0]}, index rows={len(idx_df)}"
             )
 
-        tf_roi = tf[:, roi_idx, :, :].mean(axis=1)  # sequences x freqs x times
+        tf_roi = tf[:, roi_idx, :, :].mean(axis=1)
 
         tmp = idx_df.copy()
         tmp["id"] = tmp["id"].astype(str)
@@ -387,6 +336,68 @@ def build_roi_aperiodic_table(df_long, roi):
 
 
 # -----------------------------------------------------------------------------
+# Correlation helper
+# -----------------------------------------------------------------------------
+def plot_correlation_matrix(
+    df_in,
+    measures,
+    title,
+    method="pearson",
+    path_out=None,
+    file_tag=None,
+):
+    cols = [c for c in measures if c in df_in.columns]
+    if len(cols) < 2:
+        print(f"Not enough measures available for correlation: {cols}")
+        return None
+
+    d = df_in[cols].apply(pd.to_numeric, errors="coerce")
+    d = d.dropna(how="all")
+    if d.empty:
+        print("No usable data for correlation matrix.")
+        return None
+
+    corr = d.corr(method=method)
+
+    fig, ax = plt.subplots(figsize=(0.8 * len(cols) + 3, 0.8 * len(cols) + 3))
+    im = ax.imshow(corr.values, vmin=-1, vmax=1, cmap="coolwarm")
+
+    ax.set_xticks(np.arange(len(cols)))
+    ax.set_yticks(np.arange(len(cols)))
+    ax.set_xticklabels(cols, rotation=45, ha="right")
+    ax.set_yticklabels(cols)
+
+    for i in range(len(cols)):
+        for j in range(len(cols)):
+            val = corr.values[i, j]
+            if np.isfinite(val):
+                ax.text(
+                    j, i, f"{val:.2f}",
+                    ha="center", va="center",
+                    fontsize=9,
+                    color="black",
+                )
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(f"{method} r")
+
+    ax.set_title(title)
+    plt.tight_layout()
+
+    if path_out is not None and file_tag is not None:
+        fig.savefig(
+            path_out / f"{file_tag}.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+        corr.to_csv(path_out / f"{file_tag}.csv")
+
+    plt.show()
+
+    return corr
+
+
+# -----------------------------------------------------------------------------
 # Shared helpers
 # -----------------------------------------------------------------------------
 def make_feedback_bin_edges(df_model, n_bins):
@@ -401,6 +412,13 @@ def add_bottom_colorbar(fig, axes, norm, cmap, label):
     cbar.set_label(label)
     cbar.set_ticks([-1, -0.5, 0, 0.5, 1])
     return cbar
+
+
+def simple_swarm_x(x_center, n_points, width=0.28, seed=0):
+    rng = np.random.default_rng(seed)
+    if n_points <= 1:
+        return np.array([x_center], dtype=float)
+    return x_center + rng.uniform(-width, width, size=n_points)
 
 
 # -----------------------------------------------------------------------------
@@ -586,13 +604,6 @@ def plot_tf_maps_by_feedback_bins(
     path_out=None,
     file_tag=None,
 ):
-    """
-    Plot ROI-averaged sequence TF maps for the same feedback bins used elsewhere.
-
-    Layout:
-        rows = groups (control, experimental)
-        cols = feedback bins
-    """
     group_order = ["control", "experimental"]
     edges = make_feedback_bin_edges(df_model, n_bins)
 
@@ -604,7 +615,7 @@ def plot_tf_maps_by_feedback_bins(
         if len(dg) == 0:
             continue
 
-        tf_stack = np.stack(dg["tf_roi"].values, axis=0)   # n_seq x freqs x times
+        tf_stack = np.stack(dg["tf_roi"].values, axis=0)
         tf_mean = tf_stack.mean(axis=0)
         f_mid = (f_bin.left + f_bin.right) / 2
 
@@ -853,70 +864,97 @@ def plot_flattened_psd_by_feedback_bins(
 
 
 # -----------------------------------------------------------------------------
-# Plot helper: 1/f fits by feedback bin
+# Plot helper: exponent swarm by feedback bin
 # -----------------------------------------------------------------------------
-def plot_aperiodic_fits_by_feedback_bins(
-    df_model, df_aperiodic, freqs, roi_name, measure, n_bins=8,
-    fmin_plot=1.0, fmax_plot=20.0, path_out=None, file_tag=None,
+def plot_exponent_swarm_by_feedback_bins(
+    df_model,
+    df_aperiodic,
+    roi_name,
+    measure,
+    n_bins=8,
+    path_out=None,
+    file_tag=None,
 ):
     group_order = ["control", "experimental"]
+    group_colors = {"control": "#1f77b4", "experimental": "#d62728"}
 
     p = df_aperiodic.copy()
     edges = make_feedback_bin_edges(df_model, n_bins)
     p["f_bin"] = pd.cut(p["f"], bins=edges, include_lowest=True)
 
-    freq_mask = (freqs >= fmin_plot) & (freqs <= fmax_plot)
-    freqs_plot = freqs[freq_mask]
+    agg = (
+        p.groupby(["group", "f_bin"], observed=True)
+        .agg(
+            exponent_mean=("exponent", "mean"),
+            exponent_sem=("exponent", "sem"),
+            n=("exponent", "size"),
+        )
+        .reset_index()
+    )
 
-    fit_bin_rows = []
-    for (group_name, f_bin), dg in p.groupby(["group", "f_bin"], observed=True):
-        if len(dg) == 0:
-            continue
+    agg["f_mid"] = agg["f_bin"].apply(lambda iv: (iv.left + iv.right) / 2).astype(float)
+    agg = agg.sort_values(["group", "f_mid"]).reset_index(drop=True)
 
-        offset_mean = dg["offset"].mean()
-        exponent_mean = dg["exponent"].mean()
-        fit_curve = offset_mean - exponent_mean * np.log10(freqs)
-        f_mid = (f_bin.left + f_bin.right) / 2
+    bin_intervals = list(pd.IntervalIndex(pd.cut(df_model["f"], bins=edges, include_lowest=True).cat.categories))
+    bin_to_x = {iv: i for i, iv in enumerate(bin_intervals)}
 
-        fit_bin_rows.append(
-            {
-                "group": group_name,
-                "f_mid": float(f_mid),
-                "fit_curve": fit_curve,
-            }
+    fig, ax = plt.subplots(figsize=(max(8, 1.15 * n_bins), 6))
+
+    offsets = {"control": -0.18, "experimental": 0.18}
+
+    for group_name in group_order:
+        dg_points = p[p["group"] == group_name].copy()
+        color = group_colors[group_name]
+
+        for iv, d_bin in dg_points.groupby("f_bin", observed=True):
+            if iv not in bin_to_x:
+                continue
+            x_center = bin_to_x[iv] + offsets[group_name]
+            xs = simple_swarm_x(x_center, len(d_bin), width=0.12, seed=bin_to_x[iv] + (0 if group_name == "control" else 100))
+            ys = d_bin["exponent"].to_numpy()
+
+            ax.scatter(
+                xs,
+                ys,
+                s=18,
+                alpha=0.45,
+                color=color,
+                edgecolors="none",
+                label=group_name if iv == list(dg_points["f_bin"].dropna().unique())[0] else None,
+            )
+
+        dg_agg = agg[agg["group"] == group_name].copy()
+        x_means = [bin_to_x[iv] + offsets[group_name] for iv in dg_agg["f_bin"]]
+        ax.errorbar(
+            x_means,
+            dg_agg["exponent_mean"],
+            yerr=dg_agg["exponent_sem"],
+            fmt="o",
+            color=color,
+            capsize=3,
+            linewidth=1.5,
+            markersize=6,
         )
 
-    fit_bins = pd.DataFrame(fit_bin_rows)
-    fit_bins = fit_bins.sort_values(["group", "f_mid"]).reset_index(drop=True)
+    tick_labels = [f"{(iv.left + iv.right)/2:.2f}" for iv in bin_intervals]
+    ax.set_xticks(range(len(bin_intervals)))
+    ax.set_xticklabels(tick_labels, rotation=0)
+    ax.set_xlabel("Signed feedback bin midpoint")
+    ax.set_ylabel("Exponent")
+    ax.set_title(f"{roi_name}_{measure}: exponent by feedback bin")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend()
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-
-    norm = mcolors.Normalize(vmin=fit_bins["f_mid"].min(), vmax=fit_bins["f_mid"].max())
-    cmap = cm.viridis
-
-    for ax, group_name in zip(axes, group_order):
-        dg = fit_bins[fit_bins["group"] == group_name]
-
-        for _, row in dg.iterrows():
-            color = cmap(norm(row["f_mid"]))
-            fit_plot = np.asarray(row["fit_curve"])[freq_mask]
-            ax.plot(freqs_plot, fit_plot, color=color, linewidth=2)
-
-        ax.set_title(group_name)
-        ax.set_xlabel("Frequency (Hz)")
-        ax.set_xlim(fmin_plot, fmax_plot)
-        ax.grid(True, alpha=0.3)
-
-    axes[0].set_ylabel("Aperiodic fit (log10 PSD)")
-
-    add_bottom_colorbar(fig=fig, axes=axes, norm=norm, cmap=cmap, label="Signed feedback (f)")
-    fig.suptitle(f"{roi_name}_{measure}: ROI 1/f fits by feedback bin", y=0.95)
-    plt.subplots_adjust(bottom=0.18, top=0.85, wspace=0.25)
+    plt.tight_layout()
 
     if path_out is not None:
         if file_tag is None:
             file_tag = f"{roi_name}_{measure}"
-        fig.savefig(path_out / f"{file_tag}_aperiodic_fits_by_feedback_1to20Hz.png", dpi=150, bbox_inches="tight")
+        fig.savefig(
+            path_out / f"{file_tag}_exponent_swarm_by_feedback_bin.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
 
     plt.show()
 
@@ -931,14 +969,16 @@ df["group"] = pd.Categorical(df["group"], categories=["control", "experimental"]
 df["half"] = pd.Categorical(df["half"])
 df["ch_name"] = df["ch_name"].astype(str)
 
-for col in [MEASURE, "f", "mean_trial_difficulty", "offset", "exponent", "slow_drift_mean"]:
+numeric_candidates = list(set(MEASURES + [PLOT_MEASURE] + CORR_MEASURES + [
+    "f", "mean_trial_difficulty", "offset", "exponent", "slow_drift_mean"
+]))
+for col in numeric_candidates:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-required_cols = ["id", "group", "block_nr", "sequence_nr", "half", "mean_trial_difficulty", "f", MEASURE]
-missing = [c for c in required_cols if c not in df.columns]
-if missing:
-    raise ValueError(f"Missing required columns in input dataframe: {missing}")
+missing_measures = [m for m in MEASURES if m not in df.columns]
+if missing_measures:
+    raise ValueError(f"These measures are missing from the dataframe: {missing_measures}")
 
 seq_meta = (
     df[
@@ -954,72 +994,150 @@ seq_meta["mean_trial_difficulty_c"] = (
     seq_meta["mean_trial_difficulty"] - seq_meta["mean_trial_difficulty"].mean()
 )
 
-df_roi = (
-    df[df["ch_name"].isin(ROI)]
-    .groupby(["id", "block_nr", "sequence_nr"], as_index=False)[MEASURE]
-    .mean()
-    .rename(columns={MEASURE: "roi_val"})
-)
-
-d = seq_meta.merge(df_roi, on=["id", "block_nr", "sequence_nr"], how="inner")
-
-d = d.dropna(
-    subset=["roi_val", "group", "id", "half", "f", "f2", "mean_trial_difficulty_c"]
-).copy()
-
 print("ROI:", ROI_NAME)
-print("Measure:", MEASURE)
 print("Electrodes:", ROI)
-print("Rows:", len(d))
-print("Subjects:", d["id"].nunique())
+print("Measures to model:", MEASURES)
+print("Subjects:", df["id"].nunique())
 
 
 # -----------------------------------------------------------------------------
-# Fit model
+# Fit models for all measures
 # -----------------------------------------------------------------------------
-fit, used_re, fit_error_log = fit_mixedlm_with_fallback(
-    df_model=d,
-    formula=FORMULA,
-    re_formulas=RE_FORMULAS,
+all_results = []
+model_data_by_measure = {}
+fit_by_measure = {}
+
+for measure in MEASURES:
+    print(f"\n--- Fitting measure: {measure} ---")
+
+    df_roi = (
+        df[df["ch_name"].isin(ROI)]
+        .groupby(["id", "block_nr", "sequence_nr"], as_index=False)[measure]
+        .mean()
+        .rename(columns={measure: "roi_val"})
+    )
+
+    d = seq_meta.merge(df_roi, on=["id", "block_nr", "sequence_nr"], how="inner")
+
+    d = d.dropna(
+        subset=["roi_val", "group", "id", "half", "f", "f2", "mean_trial_difficulty_c"]
+    ).copy()
+
+    print("Rows:", len(d))
+    print("Subjects:", d["id"].nunique())
+
+    fit, used_re, fit_error_log = fit_mixedlm_with_fallback(
+        df_model=d,
+        formula=FORMULA,
+        re_formulas=RE_FORMULAS,
+    )
+
+    if fit is None:
+        print("Model failed:")
+        for msg in fit_error_log:
+            print(msg)
+
+        fail_row = pd.DataFrame(
+            {
+                "term": [np.nan],
+                "beta": [np.nan],
+                "se": [np.nan],
+                "z": [np.nan],
+                "p": [np.nan],
+                "random_effects": [np.nan],
+                "n_subjects": [d["id"].nunique()],
+                "n_obs": [len(d)],
+                "llf": [np.nan],
+                "aic": [np.nan],
+                "bic": [np.nan],
+                "measure": [measure],
+                "roi_name": [ROI_NAME],
+                "model_failed": [True],
+                "fit_error_log": [" | ".join(fit_error_log)],
+            }
+        )
+        all_results.append(fail_row)
+        continue
+
+    print(fit.summary())
+    print("Random-effects structure:", used_re)
+
+    fe = fit.fe_params
+    se = fit.bse_fe.reindex(fe.index)
+    zvals = fe / se.replace(0, np.nan)
+    pvals = fit.pvalues.reindex(fe.index)
+
+    df_res = pd.DataFrame(
+        {
+            "term": fe.index,
+            "beta": fe.values,
+            "se": se.values,
+            "z": zvals.values,
+            "p": pvals.values,
+            "random_effects": used_re,
+            "n_subjects": d["id"].nunique(),
+            "n_obs": len(d),
+            "llf": fit.llf,
+            "aic": fit.aic if np.isfinite(fit.aic) else np.nan,
+            "bic": fit.bic if np.isfinite(fit.bic) else np.nan,
+            "measure": measure,
+            "roi_name": ROI_NAME,
+            "model_failed": False,
+            "fit_error_log": "",
+        }
+    )
+    all_results.append(df_res)
+
+    model_data_by_measure[measure] = d
+    fit_by_measure[measure] = fit
+
+combined_results = pd.concat(all_results, ignore_index=True)
+combined_results.to_csv(
+    PATH_OUT / f"{ROI_NAME}_all_measures_mixedlm_results.csv",
+    index=False,
 )
 
-if fit is None:
-    raise RuntimeError("Model failed:\n" + "\n".join(fit_error_log))
 
-print(fit.summary())
-print("Random-effects structure:", used_re)
+# -----------------------------------------------------------------------------
+# Make feedback/model fit plot for each successfully fitted measure
+# -----------------------------------------------------------------------------
+for measure in MEASURES:
+    if measure not in model_data_by_measure or measure not in fit_by_measure:
+        continue
 
-fe = fit.fe_params
-se = fit.bse_fe.reindex(fe.index)
-zvals = fe / se.replace(0, np.nan)
-pvals = fit.pvalues.reindex(fe.index)
-
-df_res = pd.DataFrame(
-    {
-        "term": fe.index,
-        "beta": fe.values,
-        "se": se.values,
-        "z": zvals.values,
-        "p": pvals.values,
-        "random_effects": used_re,
-        "n_subjects": d["id"].nunique(),
-        "n_obs": len(d),
-        "llf": fit.llf,
-        "aic": fit.aic if np.isfinite(fit.aic) else np.nan,
-        "bic": fit.bic if np.isfinite(fit.bic) else np.nan,
-        "measure": MEASURE,
-        "roi_name": ROI_NAME,
-    }
-)
-
-df_res.to_csv(PATH_OUT / f"{ROI_NAME}_{MEASURE}_mixedlm_results.csv", index=False)
+    plot_feedback_curves(
+        df_model=model_data_by_measure[measure],
+        fit=fit_by_measure[measure],
+        outcome_name=f"{ROI_NAME}_{measure}",
+        n_bins=N_BINS,
+        path_out=PATH_OUT,
+        file_tag=f"{ROI_NAME}_{measure}",
+    )
 
 
 # -----------------------------------------------------------------------------
-# Load ERP / TF / PSD / aperiodic data
+# Reference model data for shared plots
+# -----------------------------------------------------------------------------
+if PLOT_MEASURE in model_data_by_measure:
+    d_plot = model_data_by_measure[PLOT_MEASURE]
+else:
+    df_roi_plot = (
+        df[df["ch_name"].isin(ROI)]
+        .groupby(["id", "block_nr", "sequence_nr"], as_index=False)[PLOT_MEASURE]
+        .mean()
+        .rename(columns={PLOT_MEASURE: "roi_val"})
+    )
+    d_plot = seq_meta.merge(df_roi_plot, on=["id", "block_nr", "sequence_nr"], how="inner")
+    d_plot = d_plot.dropna(
+        subset=["roi_val", "group", "id", "half", "f", "f2", "mean_trial_difficulty_c"]
+    ).copy()
+
+
+# -----------------------------------------------------------------------------
+# Load ERP / TF / PSD / aperiodic data once
 # -----------------------------------------------------------------------------
 keep_cols = ["id", "block_nr", "sequence_nr", "group", "f"]
-keep_df = d[keep_cols].drop_duplicates()
+keep_df = d_plot[keep_cols].drop_duplicates()
 
 df_erp, erp_times = load_sequence_erp_long(PATH_IN, ROI)
 if df_erp is not None:
@@ -1068,47 +1186,30 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# Plot 1: observed/model feedback curves
-# -----------------------------------------------------------------------------
-plot_feedback_curves(
-    df_model=d,
-    fit=fit,
-    outcome_name=f"{ROI_NAME}_{MEASURE}",
-    n_bins=N_BINS,
-    path_out=PATH_OUT,
-    file_tag=f"{ROI_NAME}_{MEASURE}",
-)
-
-
-# -----------------------------------------------------------------------------
-# Plot 2: ERP by feedback bins
+# Shared plots, made once using PLOT_MEASURE as label
 # -----------------------------------------------------------------------------
 if df_erp is not None and erp_times is not None:
     plot_erp_by_feedback_bins(
-        df_model=d,
+        df_model=d_plot,
         df_erp=df_erp,
         times=erp_times,
         roi_name=ROI_NAME,
-        measure=MEASURE,
+        measure=PLOT_MEASURE,
         n_bins=N_BINS,
         tmin_plot=ERP_PLOT_TMIN,
         tmax_plot=ERP_PLOT_TMAX,
         path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{MEASURE}",
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
 
-
-# -----------------------------------------------------------------------------
-# Plot 3: TF maps by feedback bins
-# -----------------------------------------------------------------------------
 if df_tf is not None and tf_freqs is not None and tf_times is not None:
     plot_tf_maps_by_feedback_bins(
-        df_model=d,
+        df_model=d_plot,
         df_tf=df_tf,
         tf_freqs=tf_freqs,
         tf_times=tf_times,
         roi_name=ROI_NAME,
-        measure=MEASURE,
+        measure=PLOT_MEASURE,
         n_bins=N_BINS,
         tmin_plot=TF_PLOT_TMIN,
         tmax_plot=TF_PLOT_TMAX,
@@ -1118,64 +1219,53 @@ if df_tf is not None and tf_freqs is not None and tf_times is not None:
         vmin=TF_VMIN,
         vmax=TF_VMAX,
         path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{MEASURE}",
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
 
-
-# -----------------------------------------------------------------------------
-# Plot 4: raw PSD by feedback bins
-# -----------------------------------------------------------------------------
 if df_psd is not None and freqs is not None:
     plot_psd_by_feedback_bins(
-        df_model=d,
+        df_model=d_plot,
         df_psd=df_psd,
         freqs=freqs,
         roi_name=ROI_NAME,
-        measure=MEASURE,
+        measure=PLOT_MEASURE,
         n_bins=N_BINS,
         fmin_plot=RAW_PSD_PLOT_FMIN,
         fmax_plot=RAW_PSD_PLOT_FMAX,
         path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{MEASURE}",
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
 
-
-# -----------------------------------------------------------------------------
-# Plot 5: flattened spectrum by feedback bins
-# -----------------------------------------------------------------------------
 if df_psd is not None and freqs is not None and df_aperiodic is not None:
     plot_flattened_psd_by_feedback_bins(
-        df_model=d,
+        df_model=d_plot,
         df_psd=df_psd,
         df_aperiodic=df_aperiodic,
         freqs=freqs,
         roi_name=ROI_NAME,
-        measure=MEASURE,
+        measure=PLOT_MEASURE,
         n_bins=N_BINS,
         fmin_plot=FLAT_PLOT_FMIN,
         fmax_plot=FLAT_PLOT_FMAX,
         path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{MEASURE}",
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
 
-
-# -----------------------------------------------------------------------------
-# Plot 6: 1/f fits by feedback bins
-# -----------------------------------------------------------------------------
-if df_aperiodic is not None and freqs is not None:
-    plot_aperiodic_fits_by_feedback_bins(
-        df_model=d,
+if df_aperiodic is not None:
+    plot_exponent_swarm_by_feedback_bins(
+        df_model=d_plot,
         df_aperiodic=df_aperiodic,
-        freqs=freqs,
         roi_name=ROI_NAME,
-        measure=MEASURE,
+        measure=PLOT_MEASURE,
         n_bins=N_BINS,
-        fmin_plot=FIT_PLOT_FMIN,
-        fmax_plot=FIT_PLOT_FMAX,
         path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{MEASURE}",
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
-    
+
+
+# -----------------------------------------------------------------------------
+# Correlation matrix
+# -----------------------------------------------------------------------------
 corr_seq = plot_correlation_matrix(
     df_in=df,
     measures=CORR_MEASURES,
@@ -1184,5 +1274,3 @@ corr_seq = plot_correlation_matrix(
     path_out=PATH_OUT,
     file_tag="correlation_matrix_sequence_level",
 )
-    
-    
