@@ -858,7 +858,7 @@ def process_subject(dataset: Path):
 # Run extraction
 # -----------------------------------------------------------------------------
 seq_data = Parallel(
-    n_jobs=12,
+    n_jobs=8,
     backend="loky",
     verbose=10,
 )(delayed(process_subject)(dataset) for dataset in DATASETS)

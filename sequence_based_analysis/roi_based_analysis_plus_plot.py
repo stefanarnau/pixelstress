@@ -39,8 +39,8 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 # User settings
 # -----------------------------------------------------------------------------
-MEASURE = "alpha_flat"   # e.g. "slow_drift_mean", "alpha_flat", "exponent", "tf_alpha_pre"
-ROI = ["Cz"]
+MEASURE = "tf_theta_pre"   # e.g. "slow_drift_mean", "alpha_flat", "exponent", "tf_alpha_pre"
+ROI = ["F1"]
 ROI_NAME = "Cz_roi"
 
 N_BINS = 9
