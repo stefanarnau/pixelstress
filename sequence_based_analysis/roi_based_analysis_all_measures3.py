@@ -1,11 +1,9 @@
 # -----------------------------------------------------------------------------
 # Slim ROI mixed model + feedback plots with:
-# 1) observed/model feedback curves for multiple measures
-# 2) ROI ERP by feedback bin
-# 3) ROI TF maps by feedback bin
-# 4) raw PSD by feedback bin
-# 5) flattened spectrum by feedback bin
-# 6) exponent violin plot by feedback bin
+# 1) observed/model feedback curves for multiple RT/FOOOF measures
+# 2) raw PSD by feedback bin
+# 3) flattened spectrum by feedback bin
+# 4) exponent violin plot by feedback bin
 #
 # Notes:
 # - MEASURES is a list of dependent variables for MLMs
@@ -13,7 +11,7 @@
 #     * fit MLM
 #     * save coefficient table rows into one combined dataframe
 #     * create a feedback/model fit plot
-# - ERP / TF / PSD / flattened / exponent violin are made once only,
+# - PSD / flattened / exponent violin are made once only,
 #   using PLOT_MEASURE only for titles / filenames
 # -----------------------------------------------------------------------------
 
@@ -42,34 +40,20 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 MEASURES = [
     "mean_rt",
-    "tf_theta_pre",
-    "tf_alpha_pre",
-    "tf_beta_pre",
-    "slow_drift_mean",
     "theta_flat",
     "alpha_flat",
     "beta_flat",
+    "offset",
     "exponent",
 ]
 
 # Used only for shared plots that are not re-run for every modeled measure
-PLOT_MEASURE = "tf_theta_pre"
+PLOT_MEASURE = "exponent"
 
-ROI = ["Cz", ""]
-ROI_NAME = "central ROI"
+ROI = ["Cz"]
+ROI_NAME = "central_roi"
 
 N_BINS = 9
-
-ERP_PLOT_TMIN = -1.4
-ERP_PLOT_TMAX = 0.0
-
-TF_PLOT_TMIN = -1.4
-TF_PLOT_TMAX = 0.0
-TF_PLOT_FMIN = 2.0
-TF_PLOT_FMAX = 30.0
-TF_CMAP = "viridis"
-TF_VMIN = None
-TF_VMAX = None
 
 RAW_PSD_PLOT_FMIN = 0.0
 RAW_PSD_PLOT_FMAX = 20.0
@@ -93,19 +77,13 @@ CORR_MEASURES = [
     "f2",
     "mean_trial_difficulty",
     "mean_rt",
-    "slow_drift_mean",
     "offset",
     "exponent",
     "theta_flat",
     "alpha_flat",
     "beta_flat",
-    "tf_delta_pre",
-    "tf_theta_pre",
-    "tf_alpha_pre",
-    "tf_beta_pre",
 ]
 
-# If True, significant-only results exclude intercept rows
 SIGNIFICANT_RESULTS_EXCLUDE_INTERCEPT = True
 
 
@@ -147,7 +125,7 @@ def fit_mixedlm_with_fallback(df_model, formula, re_formulas):
 
 
 # -----------------------------------------------------------------------------
-# Sequence file loaders
+# PSD loader
 # -----------------------------------------------------------------------------
 def load_sequence_psd_long(path_in, roi):
     psd_rows = []
@@ -161,6 +139,7 @@ def load_sequence_psd_long(path_in, roi):
     for idx_file in index_files:
         subj_tag = idx_file.name.replace("_seq_psd_channelwise_index_car.csv", "")
         npz_file = path_in / f"{subj_tag}_seq_psd_channelwise_car.npz"
+
         if not npz_file.exists():
             continue
 
@@ -182,123 +161,11 @@ def load_sequence_psd_long(path_in, roi):
 
         if psd.shape[0] != len(idx_df):
             raise ValueError(
-                f"Mismatch for {subj_tag}: PSD sequences={psd.shape[0]}, index rows={len(idx_df)}"
+                f"Mismatch for {subj_tag}: PSD sequences={psd.shape[0]}, "
+                f"index rows={len(idx_df)}"
             )
 
         psd_roi = psd[:, roi_idx, :].mean(axis=1)
-
-        tmp = idx_df.copy()
-        tmp["id"] = tmp["id"].astype(str)
-        tmp["block_nr"] = tmp["block_nr"].astype(int)
-        tmp["sequence_nr"] = tmp["sequence_nr"].astype(int)
-        tmp["group"] = pd.Categorical(tmp["group"], categories=["control", "experimental"])
-        tmp["psd_roi"] = list(psd_roi)
-
-        psd_rows.append(tmp[["id", "group", "block_nr", "sequence_nr", "f", "psd_roi"]])
-
-    if not psd_rows:
-        return None, None
-
-    return pd.concat(psd_rows, ignore_index=True), freqs_ref
-
-
-def load_sequence_erp_long(path_in, roi):
-    erp_rows = []
-    index_files = sorted(path_in.glob("sub-*_seq_erp_channelwise_index_car.csv"))
-
-    if not index_files:
-        return None, None
-
-    times_ref = None
-
-    for idx_file in index_files:
-        subj_tag = idx_file.name.replace("_seq_erp_channelwise_index_car.csv", "")
-        npz_file = path_in / f"{subj_tag}_seq_erp_channelwise_car.npz"
-        if not npz_file.exists():
-            continue
-
-        idx_df = pd.read_csv(idx_file)
-        npz = np.load(npz_file, allow_pickle=True)
-
-        erp = npz["erp"]
-        times = npz["times"]
-        channels = npz["channels"].astype(str)
-
-        if times_ref is None:
-            times_ref = times.copy()
-        elif not np.allclose(times_ref, times):
-            raise ValueError(f"ERP time mismatch in {subj_tag}")
-
-        roi_idx = [i for i, ch in enumerate(channels) if ch in roi]
-        if len(roi_idx) == 0:
-            continue
-
-        if erp.shape[0] != len(idx_df):
-            raise ValueError(
-                f"Mismatch for {subj_tag}: ERP sequences={erp.shape[0]}, index rows={len(idx_df)}"
-            )
-
-        erp_roi = erp[:, roi_idx, :].mean(axis=1)
-
-        tmp = idx_df.copy()
-        tmp["id"] = tmp["id"].astype(str)
-        tmp["block_nr"] = tmp["block_nr"].astype(int)
-        tmp["sequence_nr"] = tmp["sequence_nr"].astype(int)
-        tmp["group"] = pd.Categorical(tmp["group"], categories=["control", "experimental"])
-        tmp["erp_roi"] = list(erp_roi)
-
-        erp_rows.append(tmp[["id", "group", "block_nr", "sequence_nr", "f", "erp_roi"]])
-
-    if not erp_rows:
-        return None, None
-
-    return pd.concat(erp_rows, ignore_index=True), times_ref
-
-
-def load_sequence_tf_long(path_in, roi):
-    tf_rows = []
-    index_files = sorted(path_in.glob("sub-*_seq_tf_channelwise_index_car.csv"))
-
-    if not index_files:
-        return None, None, None
-
-    freqs_ref = None
-    times_ref = None
-
-    for idx_file in index_files:
-        subj_tag = idx_file.name.replace("_seq_tf_channelwise_index_car.csv", "")
-        npz_file = path_in / f"{subj_tag}_seq_tf_channelwise_car.npz"
-        if not npz_file.exists():
-            continue
-
-        idx_df = pd.read_csv(idx_file)
-        npz = np.load(npz_file, allow_pickle=True)
-
-        tf = npz["tf"]
-        freqs = npz["freqs"]
-        times = npz["times"]
-        channels = npz["channels"].astype(str)
-
-        if freqs_ref is None:
-            freqs_ref = freqs.copy()
-        elif not np.allclose(freqs_ref, freqs):
-            raise ValueError(f"TF frequency mismatch in {subj_tag}")
-
-        if times_ref is None:
-            times_ref = times.copy()
-        elif not np.allclose(times_ref, times):
-            raise ValueError(f"TF time mismatch in {subj_tag}")
-
-        roi_idx = [i for i, ch in enumerate(channels) if ch in roi]
-        if len(roi_idx) == 0:
-            continue
-
-        if tf.shape[0] != len(idx_df):
-            raise ValueError(
-                f"Mismatch for {subj_tag}: TF sequences={tf.shape[0]}, index rows={len(idx_df)}"
-            )
-
-        tf_roi = tf[:, roi_idx, :, :].mean(axis=1)
 
         tmp = idx_df.copy()
         tmp["id"] = tmp["id"].astype(str)
@@ -308,16 +175,16 @@ def load_sequence_tf_long(path_in, roi):
             tmp["group"],
             categories=["control", "experimental"],
         )
-        tmp["tf_roi"] = list(tf_roi)
+        tmp["psd_roi"] = list(psd_roi)
 
-        tf_rows.append(
-            tmp[["id", "group", "block_nr", "sequence_nr", "f", "tf_roi"]]
+        psd_rows.append(
+            tmp[["id", "group", "block_nr", "sequence_nr", "f", "psd_roi"]]
         )
 
-    if not tf_rows:
-        return None, None, None
+    if not psd_rows:
+        return None, None
 
-    return pd.concat(tf_rows, ignore_index=True), freqs_ref, times_ref
+    return pd.concat(psd_rows, ignore_index=True), freqs_ref
 
 
 def build_roi_aperiodic_table(df_long, roi):
@@ -326,7 +193,7 @@ def build_roi_aperiodic_table(df_long, roi):
     out = (
         dfa.groupby(
             ["id", "group", "block_nr", "sequence_nr", "f"],
-            as_index=False
+            as_index=False,
         )[["offset", "exponent"]]
         .mean()
     )
@@ -334,7 +201,11 @@ def build_roi_aperiodic_table(df_long, roi):
     out["id"] = out["id"].astype(str)
     out["block_nr"] = out["block_nr"].astype(int)
     out["sequence_nr"] = out["sequence_nr"].astype(int)
-    out["group"] = pd.Categorical(out["group"], categories=["control", "experimental"])
+    out["group"] = pd.Categorical(
+        out["group"],
+        categories=["control", "experimental"],
+    )
+
     return out
 
 
@@ -356,6 +227,7 @@ def plot_correlation_matrix(
 
     d = df_in[cols].apply(pd.to_numeric, errors="coerce")
     d = d.dropna(how="all")
+
     if d.empty:
         print("No usable data for correlation matrix.")
         return None
@@ -375,8 +247,11 @@ def plot_correlation_matrix(
             val = corr.values[i, j]
             if np.isfinite(val):
                 ax.text(
-                    j, i, f"{val:.2f}",
-                    ha="center", va="center",
+                    j,
+                    i,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="center",
                     fontsize=9,
                     color="black",
                 )
@@ -420,7 +295,14 @@ def add_bottom_colorbar(fig, axes, norm, cmap, label):
 # -----------------------------------------------------------------------------
 # Plot helper: observed/model curves
 # -----------------------------------------------------------------------------
-def plot_feedback_curves(df_model, fit, outcome_name, n_bins=8, path_out=None, file_tag=None):
+def plot_feedback_curves(
+    df_model,
+    fit,
+    outcome_name,
+    n_bins=8,
+    path_out=None,
+    file_tag=None,
+):
     d = df_model.copy()
     group_order = ["control", "experimental"]
 
@@ -462,7 +344,10 @@ def plot_feedback_curves(df_model, fit, outcome_name, n_bins=8, path_out=None, f
     pred = pd.DataFrame(pred_rows)
     pred["pred"] = fit.predict(pred)
 
-    group_colors = {"control": "#1f77b4", "experimental": "#d62728"}
+    group_colors = {
+        "control": "#1f77b4",
+        "experimental": "#d62728",
+    }
 
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -472,14 +357,22 @@ def plot_feedback_curves(df_model, fit, outcome_name, n_bins=8, path_out=None, f
         color = group_colors[group_name]
 
         ax.errorbar(
-            dg["f_mid"], dg["mean_score"], yerr=dg["sem_score"],
-            fmt="o", linestyle="none", capsize=3, color=color,
+            dg["f_mid"],
+            dg["mean_score"],
+            yerr=dg["sem_score"],
+            fmt="o",
+            linestyle="none",
+            capsize=3,
+            color=color,
             label=f"{group_name} observed",
         )
 
         ax.plot(
-            dg_pred["f"], dg_pred["pred"],
-            linewidth=3, color=color, label=f"{group_name} model",
+            dg_pred["f"],
+            dg_pred["pred"],
+            linewidth=3,
+            color=color,
+            label=f"{group_name} model",
         )
 
     ax.axvline(0, color="k", linestyle="--", linewidth=1.2)
@@ -493,220 +386,8 @@ def plot_feedback_curves(df_model, fit, outcome_name, n_bins=8, path_out=None, f
     if path_out is not None:
         if file_tag is None:
             file_tag = outcome_name
-        fig.savefig(path_out / f"{file_tag}_feedback_curves.png", dpi=150, bbox_inches="tight")
-
-    plt.show()
-
-
-# -----------------------------------------------------------------------------
-# Plot helper: ERP by feedback bin
-# -----------------------------------------------------------------------------
-def plot_erp_by_feedback_bins(
-    df_model,
-    df_erp,
-    times,
-    roi_name,
-    measure,
-    n_bins=8,
-    tmin_plot=-2.0,
-    tmax_plot=0.0,
-    path_out=None,
-    file_tag=None,
-):
-    group_order = ["control", "experimental"]
-    edges = make_feedback_bin_edges(df_model, n_bins)
-
-    p = df_erp.copy()
-    p["f_bin"] = pd.cut(p["f"], bins=edges, include_lowest=True)
-
-    erp_bin_rows = []
-    for (group_name, f_bin), dg in p.groupby(["group", "f_bin"], observed=True):
-        if len(dg) == 0:
-            continue
-
-        erp_stack = np.stack(dg["erp_roi"].values, axis=0)
-        erp_mean = erp_stack.mean(axis=0)
-        f_mid = (f_bin.left + f_bin.right) / 2
-
-        erp_bin_rows.append(
-            {
-                "group": group_name,
-                "f_mid": float(f_mid),
-                "erp_mean": erp_mean,
-            }
-        )
-
-    erp_bins = pd.DataFrame(erp_bin_rows)
-    erp_bins = erp_bins.sort_values(["group", "f_mid"]).reset_index(drop=True)
-
-    time_mask = (times >= tmin_plot) & (times <= tmax_plot)
-    times_plot = times[time_mask]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-
-    norm = mcolors.Normalize(
-        vmin=erp_bins["f_mid"].min(),
-        vmax=erp_bins["f_mid"].max(),
-    )
-    cmap = cm.viridis
-
-    for ax, group_name in zip(axes, group_order):
-        dg = erp_bins[erp_bins["group"] == group_name]
-
-        for _, row in dg.iterrows():
-            color = cmap(norm(row["f_mid"]))
-            erp_plot = np.asarray(row["erp_mean"])[time_mask]
-            ax.plot(times_plot, erp_plot, color=color, linewidth=2)
-
-        ax.axvline(0, color="k", linestyle="--", linewidth=1)
-        ax.axhline(0, color="k", linestyle=":", linewidth=0.8)
-        ax.set_title(group_name)
-        ax.set_xlabel("Time (s)")
-        ax.set_xlim(tmin_plot, tmax_plot)
-        ax.grid(True, alpha=0.3)
-
-    axes[0].set_ylabel("Voltage")
-
-    add_bottom_colorbar(fig=fig, axes=axes, norm=norm, cmap=cmap, label="Signed feedback (f)")
-    fig.suptitle(f"{roi_name}_{measure}: ROI ERP by feedback bin", y=0.95)
-    plt.subplots_adjust(bottom=0.18, top=0.85, wspace=0.25)
-
-    if path_out is not None:
-        if file_tag is None:
-            file_tag = f"{roi_name}_{measure}"
-        fig.savefig(path_out / f"{file_tag}_erp_by_feedback.png", dpi=150, bbox_inches="tight")
-
-    plt.show()
-
-
-# -----------------------------------------------------------------------------
-# Plot helper: TF maps by feedback bin
-# -----------------------------------------------------------------------------
-def plot_tf_maps_by_feedback_bins(
-    df_model,
-    df_tf,
-    tf_freqs,
-    tf_times,
-    roi_name,
-    measure,
-    n_bins=8,
-    tmin_plot=-2.0,
-    tmax_plot=0.0,
-    fmin_plot=2.0,
-    fmax_plot=30.0,
-    cmap="viridis",
-    vmin=None,
-    vmax=None,
-    path_out=None,
-    file_tag=None,
-):
-    group_order = ["control", "experimental"]
-    edges = make_feedback_bin_edges(df_model, n_bins)
-
-    p = df_tf.copy()
-    p["f_bin"] = pd.cut(p["f"], bins=edges, include_lowest=True)
-
-    tf_bin_rows = []
-    for (group_name, f_bin), dg in p.groupby(["group", "f_bin"], observed=True):
-        if len(dg) == 0:
-            continue
-
-        tf_stack = np.stack(dg["tf_roi"].values, axis=0)
-        tf_mean = tf_stack.mean(axis=0)
-        f_mid = (f_bin.left + f_bin.right) / 2
-
-        tf_bin_rows.append(
-            {
-                "group": group_name,
-                "f_bin": f_bin,
-                "f_mid": float(f_mid),
-                "tf_mean": tf_mean,
-                "n": int(len(dg)),
-            }
-        )
-
-    tf_bins = pd.DataFrame(tf_bin_rows)
-    tf_bins = tf_bins.sort_values(["group", "f_mid"]).reset_index(drop=True)
-
-    if tf_bins.empty:
-        print("No TF data available for plotting.")
-        return
-
-    time_mask = (tf_times >= tmin_plot) & (tf_times <= tmax_plot)
-    freq_mask = (tf_freqs >= fmin_plot) & (tf_freqs <= fmax_plot)
-
-    times_plot = tf_times[time_mask]
-    freqs_plot = tf_freqs[freq_mask]
-
-    n_cols = n_bins
-    fig, axes = plt.subplots(
-        2, n_cols,
-        figsize=(2.6 * n_cols, 6),
-        sharex=True,
-        sharey=True,
-        squeeze=False,
-    )
-
-    if vmin is None or vmax is None:
-        all_vals = []
-        for _, row in tf_bins.iterrows():
-            arr = np.asarray(row["tf_mean"])[np.ix_(freq_mask, time_mask)]
-            all_vals.append(arr)
-        all_concat = np.concatenate([a.ravel() for a in all_vals])
-        if vmin is None:
-            vmin = np.nanpercentile(all_concat, 5)
-        if vmax is None:
-            vmax = np.nanpercentile(all_concat, 95)
-
-    extent = [times_plot[0], times_plot[-1], freqs_plot[0], freqs_plot[-1]]
-    im = None
-
-    for r, group_name in enumerate(group_order):
-        dg = tf_bins[tf_bins["group"] == group_name].copy()
-        dg = dg.sort_values("f_mid").reset_index(drop=True)
-
-        for c in range(n_cols):
-            ax = axes[r, c]
-
-            if c < len(dg):
-                row = dg.iloc[c]
-                tf_plot = np.asarray(row["tf_mean"])[np.ix_(freq_mask, time_mask)]
-
-                im = ax.imshow(
-                    tf_plot,
-                    aspect="auto",
-                    origin="lower",
-                    extent=extent,
-                    cmap=cmap,
-                    vmin=vmin,
-                    vmax=vmax,
-                )
-
-                ax.set_title(f"{row['f_mid']:.2f}\n n={row['n']}", fontsize=9)
-                ax.axvline(0, color="w", linestyle="--", linewidth=0.8, alpha=0.9)
-            else:
-                ax.axis("off")
-                continue
-
-            if r == 1:
-                ax.set_xlabel("Time (s)")
-            if c == 0:
-                ax.set_ylabel(f"{group_name}\nFrequency (Hz)")
-            else:
-                ax.set_ylabel("")
-
-    cbar_ax = fig.add_axes([0.2, 0.06, 0.6, 0.03])
-    cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal")
-    cbar.set_label("TF power")
-
-    fig.suptitle(f"{roi_name}_{measure}: ROI TF maps by feedback bin", y=0.96)
-    plt.subplots_adjust(bottom=0.16, top=0.86, wspace=0.18, hspace=0.25)
-
-    if path_out is not None:
-        if file_tag is None:
-            file_tag = f"{roi_name}_{measure}"
         fig.savefig(
-            path_out / f"{file_tag}_tf_maps_by_feedback_bins.png",
+            path_out / f"{file_tag}_feedback_curves.png",
             dpi=150,
             bbox_inches="tight",
         )
@@ -718,8 +399,16 @@ def plot_tf_maps_by_feedback_bins(
 # Plot helper: raw PSD by feedback bin
 # -----------------------------------------------------------------------------
 def plot_psd_by_feedback_bins(
-    df_model, df_psd, freqs, roi_name, measure, n_bins=8,
-    fmin_plot=0.0, fmax_plot=20.0, path_out=None, file_tag=None,
+    df_model,
+    df_psd,
+    freqs,
+    roi_name,
+    measure,
+    n_bins=8,
+    fmin_plot=0.0,
+    fmax_plot=20.0,
+    path_out=None,
+    file_tag=None,
 ):
     group_order = ["control", "experimental"]
     edges = make_feedback_bin_edges(df_model, n_bins)
@@ -737,7 +426,11 @@ def plot_psd_by_feedback_bins(
         f_mid = (f_bin.left + f_bin.right) / 2
 
         psd_bin_rows.append(
-            {"group": group_name, "f_mid": float(f_mid), "psd_mean": psd_mean}
+            {
+                "group": group_name,
+                "f_mid": float(f_mid),
+                "psd_mean": psd_mean,
+            }
         )
 
     psd_bins = pd.DataFrame(psd_bin_rows)
@@ -748,7 +441,10 @@ def plot_psd_by_feedback_bins(
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
-    norm = mcolors.Normalize(vmin=psd_bins["f_mid"].min(), vmax=psd_bins["f_mid"].max())
+    norm = mcolors.Normalize(
+        vmin=psd_bins["f_mid"].min(),
+        vmax=psd_bins["f_mid"].max(),
+    )
     cmap = cm.viridis
 
     for ax, group_name in zip(axes, group_order):
@@ -766,14 +462,25 @@ def plot_psd_by_feedback_bins(
 
     axes[0].set_ylabel("PSD")
 
-    add_bottom_colorbar(fig=fig, axes=axes, norm=norm, cmap=cmap, label="Signed feedback (f)")
+    add_bottom_colorbar(
+        fig=fig,
+        axes=axes,
+        norm=norm,
+        cmap=cmap,
+        label="Signed feedback (f)",
+    )
+
     fig.suptitle(f"{roi_name}_{measure}: ROI PSD by feedback bin", y=0.95)
     plt.subplots_adjust(bottom=0.18, top=0.85, wspace=0.25)
 
     if path_out is not None:
         if file_tag is None:
             file_tag = f"{roi_name}_{measure}"
-        fig.savefig(path_out / f"{file_tag}_psd_by_feedback_0to20Hz.png", dpi=150, bbox_inches="tight")
+        fig.savefig(
+            path_out / f"{file_tag}_psd_by_feedback_0to20Hz.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
 
     plt.show()
 
@@ -782,8 +489,17 @@ def plot_psd_by_feedback_bins(
 # Plot helper: flattened spectrum by feedback bin
 # -----------------------------------------------------------------------------
 def plot_flattened_psd_by_feedback_bins(
-    df_model, df_psd, df_aperiodic, freqs, roi_name, measure, n_bins=8,
-    fmin_plot=1.0, fmax_plot=20.0, path_out=None, file_tag=None,
+    df_model,
+    df_psd,
+    df_aperiodic,
+    freqs,
+    roi_name,
+    measure,
+    n_bins=8,
+    fmin_plot=1.0,
+    fmax_plot=20.0,
+    path_out=None,
+    file_tag=None,
 ):
     group_order = ["control", "experimental"]
 
@@ -820,7 +536,11 @@ def plot_flattened_psd_by_feedback_bins(
         f_mid = (f_bin.left + f_bin.right) / 2
 
         flat_bin_rows.append(
-            {"group": group_name, "f_mid": float(f_mid), "flat_mean": flat_mean}
+            {
+                "group": group_name,
+                "f_mid": float(f_mid),
+                "flat_mean": flat_mean,
+            }
         )
 
     flat_bins = pd.DataFrame(flat_bin_rows)
@@ -828,7 +548,10 @@ def plot_flattened_psd_by_feedback_bins(
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
-    norm = mcolors.Normalize(vmin=flat_bins["f_mid"].min(), vmax=flat_bins["f_mid"].max())
+    norm = mcolors.Normalize(
+        vmin=flat_bins["f_mid"].min(),
+        vmax=flat_bins["f_mid"].max(),
+    )
     cmap = cm.viridis
 
     for ax, group_name in zip(axes, group_order):
@@ -847,14 +570,25 @@ def plot_flattened_psd_by_feedback_bins(
 
     axes[0].set_ylabel("Flattened log10 power")
 
-    add_bottom_colorbar(fig=fig, axes=axes, norm=norm, cmap=cmap, label="Signed feedback (f)")
+    add_bottom_colorbar(
+        fig=fig,
+        axes=axes,
+        norm=norm,
+        cmap=cmap,
+        label="Signed feedback (f)",
+    )
+
     fig.suptitle(f"{roi_name}_{measure}: ROI flattened spectrum by feedback bin", y=0.95)
     plt.subplots_adjust(bottom=0.18, top=0.85, wspace=0.25)
 
     if path_out is not None:
         if file_tag is None:
             file_tag = f"{roi_name}_{measure}"
-        fig.savefig(path_out / f"{file_tag}_flattened_psd_by_feedback_1to20Hz.png", dpi=150, bbox_inches="tight")
+        fig.savefig(
+            path_out / f"{file_tag}_flattened_psd_by_feedback_1to20Hz.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
 
     plt.show()
 
@@ -872,7 +606,10 @@ def plot_exponent_violin_by_feedback_bins(
     file_tag=None,
 ):
     group_order = ["control", "experimental"]
-    group_colors = {"control": "#1f77b4", "experimental": "#d62728"}
+    group_colors = {
+        "control": "#1f77b4",
+        "experimental": "#d62728",
+    }
 
     p = df_aperiodic.copy()
     edges = make_feedback_bin_edges(df_model, n_bins)
@@ -897,7 +634,10 @@ def plot_exponent_violin_by_feedback_bins(
 
     fig, ax = plt.subplots(figsize=(max(8, 1.15 * n_bins), 6))
 
-    offsets = {"control": -0.18, "experimental": 0.18}
+    offsets = {
+        "control": -0.18,
+        "experimental": 0.18,
+    }
     violin_width = 0.30
 
     for group_name in group_order:
@@ -984,9 +724,20 @@ df["group"] = pd.Categorical(df["group"], categories=["control", "experimental"]
 df["half"] = pd.Categorical(df["half"])
 df["ch_name"] = df["ch_name"].astype(str)
 
-numeric_candidates = list(set(MEASURES + [PLOT_MEASURE] + CORR_MEASURES + [
-    "f", "mean_trial_difficulty", "offset", "exponent", "slow_drift_mean"
-]))
+numeric_candidates = list(
+    set(
+        MEASURES
+        + [PLOT_MEASURE]
+        + CORR_MEASURES
+        + [
+            "f",
+            "mean_trial_difficulty",
+            "offset",
+            "exponent",
+        ]
+    )
+)
+
 for col in numeric_candidates:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -997,7 +748,15 @@ if missing_measures:
 
 seq_meta = (
     df[
-        ["id", "group", "block_nr", "sequence_nr", "half", "mean_trial_difficulty", "f"]
+        [
+            "id",
+            "group",
+            "block_nr",
+            "sequence_nr",
+            "half",
+            "mean_trial_difficulty",
+            "f",
+        ]
     ]
     .drop_duplicates()
     .copy()
@@ -1035,7 +794,15 @@ for measure in MEASURES:
     d = seq_meta.merge(df_roi, on=["id", "block_nr", "sequence_nr"], how="inner")
 
     d = d.dropna(
-        subset=["roi_val", "group", "id", "half", "f", "f2", "mean_trial_difficulty_c"]
+        subset=[
+            "roi_val",
+            "group",
+            "id",
+            "half",
+            "f",
+            "f2",
+            "mean_trial_difficulty_c",
+        ]
     ).copy()
 
     print("Rows:", len(d))
@@ -1113,15 +880,11 @@ combined_results.to_csv(
 )
 
 combined_results_sig = combined_results[
-    (combined_results["model_failed"] == False) &
-    (combined_results["p"].notna()) &
-    (combined_results["p"] < 0.05)
+    (combined_results["model_failed"] == False)
+    & (combined_results["p"].notna())
+    & (combined_results["p"] < 0.05)
+    & (combined_results["term"] != "Intercept")
 ].copy()
-
-if SIGNIFICANT_RESULTS_EXCLUDE_INTERCEPT:
-    combined_results_sig = combined_results_sig[
-        combined_results_sig["term"] != "Intercept"
-    ].copy()
 
 combined_results_sig.to_csv(
     PATH_OUT / f"{ROI_NAME}_all_measures_mixedlm_results_significant_only.csv",
@@ -1158,41 +921,34 @@ else:
         .mean()
         .rename(columns={PLOT_MEASURE: "roi_val"})
     )
-    d_plot = seq_meta.merge(df_roi_plot, on=["id", "block_nr", "sequence_nr"], how="inner")
+
+    d_plot = seq_meta.merge(
+        df_roi_plot,
+        on=["id", "block_nr", "sequence_nr"],
+        how="inner",
+    )
+
     d_plot = d_plot.dropna(
-        subset=["roi_val", "group", "id", "half", "f", "f2", "mean_trial_difficulty_c"]
+        subset=[
+            "roi_val",
+            "group",
+            "id",
+            "half",
+            "f",
+            "f2",
+            "mean_trial_difficulty_c",
+        ]
     ).copy()
 
 
 # -----------------------------------------------------------------------------
-# Load ERP / TF / PSD / aperiodic data once
+# Load PSD / aperiodic data once
 # -----------------------------------------------------------------------------
 keep_cols = ["id", "block_nr", "sequence_nr", "group", "f"]
 keep_df = d_plot[keep_cols].drop_duplicates()
 
-df_erp, erp_times = load_sequence_erp_long(PATH_IN, ROI)
-if df_erp is not None:
-    df_erp = df_erp.merge(
-        keep_df,
-        on=["id", "block_nr", "sequence_nr", "group", "f"],
-        how="inner",
-    )
-    print("ERP rows after merge:", len(df_erp))
-else:
-    print("No ERP files found.")
-
-df_tf, tf_freqs, tf_times = load_sequence_tf_long(PATH_IN, ROI)
-if df_tf is not None:
-    df_tf = df_tf.merge(
-        keep_df,
-        on=["id", "block_nr", "sequence_nr", "group", "f"],
-        how="inner",
-    )
-    print("TF rows after merge:", len(df_tf))
-else:
-    print("No TF files found.")
-
 df_psd, freqs = load_sequence_psd_long(PATH_IN, ROI)
+
 if df_psd is not None:
     df_psd = df_psd.merge(
         keep_df,
@@ -1219,40 +975,6 @@ else:
 # -----------------------------------------------------------------------------
 # Shared plots, made once using PLOT_MEASURE as label
 # -----------------------------------------------------------------------------
-if df_erp is not None and erp_times is not None:
-    plot_erp_by_feedback_bins(
-        df_model=d_plot,
-        df_erp=df_erp,
-        times=erp_times,
-        roi_name=ROI_NAME,
-        measure=PLOT_MEASURE,
-        n_bins=N_BINS,
-        tmin_plot=ERP_PLOT_TMIN,
-        tmax_plot=ERP_PLOT_TMAX,
-        path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
-    )
-
-if df_tf is not None and tf_freqs is not None and tf_times is not None:
-    plot_tf_maps_by_feedback_bins(
-        df_model=d_plot,
-        df_tf=df_tf,
-        tf_freqs=tf_freqs,
-        tf_times=tf_times,
-        roi_name=ROI_NAME,
-        measure=PLOT_MEASURE,
-        n_bins=N_BINS,
-        tmin_plot=TF_PLOT_TMIN,
-        tmax_plot=TF_PLOT_TMAX,
-        fmin_plot=TF_PLOT_FMIN,
-        fmax_plot=TF_PLOT_FMAX,
-        cmap=TF_CMAP,
-        vmin=TF_VMIN,
-        vmax=TF_VMAX,
-        path_out=PATH_OUT,
-        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
-    )
-
 if df_psd is not None and freqs is not None:
     plot_psd_by_feedback_bins(
         df_model=d_plot,
