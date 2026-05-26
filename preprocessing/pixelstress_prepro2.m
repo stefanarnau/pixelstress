@@ -104,6 +104,7 @@ for s = 1 : length(subject_list)
     % Load EEG
     fn = ['ExpExp104_', subject_list{s}, '_1.vhdr'];
     EEG = pop_loadbv(PATH_RAW, fn, [], []);
+    aa=bb
 
     % Set session string
     if str2num(subject_list{s}(end)) == 1

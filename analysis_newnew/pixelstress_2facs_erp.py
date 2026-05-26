@@ -215,7 +215,7 @@ T_obs, clusters, pvals, H0 = mne.stats.spatio_temporal_cluster_1samp_test(
     adjacency=adjacency,
     n_permutations=2000,
     tail=0,  # two-sided
-    n_jobs=1,
+    n_jobs=-1,
 )
 
 
