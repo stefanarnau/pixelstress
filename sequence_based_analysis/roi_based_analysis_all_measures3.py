@@ -1,9 +1,10 @@
 # -----------------------------------------------------------------------------
 # Slim ROI mixed model + feedback plots with:
-# 1) observed/model feedback curves for multiple RT/FOOOF measures
+# 1) observed/model feedback curves for multiple RT/FOOOF/ERP measures
 # 2) raw PSD by feedback bin
 # 3) flattened spectrum by feedback bin
 # 4) exponent violin plot by feedback bin
+# 5) ERP waveform by feedback bin
 #
 # Notes:
 # - MEASURES is a list of dependent variables for MLMs
@@ -11,7 +12,7 @@
 #     * fit MLM
 #     * save coefficient table rows into one combined dataframe
 #     * create a feedback/model fit plot
-# - PSD / flattened / exponent violin are made once only,
+# - PSD / flattened / exponent violin / ERP waveform are made once only,
 #   using PLOT_MEASURE only for titles / filenames
 # -----------------------------------------------------------------------------
 
@@ -28,7 +29,7 @@ import statsmodels.formula.api as smf
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-PATH_IN = Path("/mnt/data_dump/pixelstress/3_sequence_data2/")
+PATH_IN = Path("/mnt/data_dump/pixelstress/3_sequence_data3/")
 PATH_OUT = Path("/mnt/data_dump/pixelstress/roi_models/")
 PATH_OUT.mkdir(parents=True, exist_ok=True)
 
@@ -40,18 +41,20 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 MEASURES = [
     "mean_rt",
+    "delta_flat",
     "theta_flat",
     "alpha_flat",
     "beta_flat",
     "offset",
     "exponent",
+    "cnv_mean",
 ]
 
 # Used only for shared plots that are not re-run for every modeled measure
 PLOT_MEASURE = "exponent"
 
-ROI = ["Cz"]
-ROI_NAME = "central_roi"
+ROI = ["FC2", "C2", "Cz", "CP2", "C4"]
+ROI_NAME = "roi"
 
 N_BINS = 9
 
@@ -60,6 +63,11 @@ RAW_PSD_PLOT_FMAX = 20.0
 
 FLAT_PLOT_FMIN = 1.0
 FLAT_PLOT_FMAX = 20.0
+
+ERP_PLOT_TMIN = -1.4
+ERP_PLOT_TMAX = 0.0
+ERP_YLIM = None  # example: (-5, 5), or None for automatic scaling
+ERP_INVERT_Y = True  # conventional ERP plotting: negativity upward
 
 FORMULA = """
 roi_val ~ group * f + group * f2
@@ -79,9 +87,15 @@ CORR_MEASURES = [
     "mean_rt",
     "offset",
     "exponent",
+    "delta_flat",
     "theta_flat",
     "alpha_flat",
     "beta_flat",
+    "delta_raw",
+    "theta_raw",
+    "alpha_raw",
+    "beta_raw",
+    "cnv_mean",
 ]
 
 SIGNIFICANT_RESULTS_EXCLUDE_INTERCEPT = True
@@ -185,6 +199,69 @@ def load_sequence_psd_long(path_in, roi):
         return None, None
 
     return pd.concat(psd_rows, ignore_index=True), freqs_ref
+
+
+# -----------------------------------------------------------------------------
+# ERP loader
+# -----------------------------------------------------------------------------
+def load_sequence_erp_long(path_in, roi):
+    erp_rows = []
+    index_files = sorted(path_in.glob("sub-*_seq_erp_channelwise_index_car.csv"))
+
+    if not index_files:
+        return None, None
+
+    times_ref = None
+
+    for idx_file in index_files:
+        subj_tag = idx_file.name.replace("_seq_erp_channelwise_index_car.csv", "")
+        npz_file = path_in / f"{subj_tag}_seq_erp_channelwise_car.npz"
+
+        if not npz_file.exists():
+            continue
+
+        idx_df = pd.read_csv(idx_file)
+        npz = np.load(npz_file, allow_pickle=True)
+
+        erp = npz["erp"]
+        times = npz["times"]
+        channels = npz["channels"].astype(str)
+
+        if times_ref is None:
+            times_ref = times.copy()
+        elif not np.allclose(times_ref, times):
+            raise ValueError(f"ERP time-vector mismatch in {subj_tag}")
+
+        roi_idx = [i for i, ch in enumerate(channels) if ch in roi]
+        if len(roi_idx) == 0:
+            continue
+
+        if erp.shape[0] != len(idx_df):
+            raise ValueError(
+                f"Mismatch for {subj_tag}: ERP sequences={erp.shape[0]}, "
+                f"index rows={len(idx_df)}"
+            )
+
+        erp_roi = erp[:, roi_idx, :].mean(axis=1)
+
+        tmp = idx_df.copy()
+        tmp["id"] = tmp["id"].astype(str)
+        tmp["block_nr"] = tmp["block_nr"].astype(int)
+        tmp["sequence_nr"] = tmp["sequence_nr"].astype(int)
+        tmp["group"] = pd.Categorical(
+            tmp["group"],
+            categories=["control", "experimental"],
+        )
+        tmp["erp_roi"] = list(erp_roi)
+
+        erp_rows.append(
+            tmp[["id", "group", "block_nr", "sequence_nr", "f", "erp_roi"]]
+        )
+
+    if not erp_rows:
+        return None, None
+
+    return pd.concat(erp_rows, ignore_index=True), times_ref
 
 
 def build_roi_aperiodic_table(df_long, roi):
@@ -478,6 +555,109 @@ def plot_psd_by_feedback_bins(
             file_tag = f"{roi_name}_{measure}"
         fig.savefig(
             path_out / f"{file_tag}_psd_by_feedback_0to20Hz.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+
+    plt.show()
+
+
+# -----------------------------------------------------------------------------
+# Plot helper: ERP by feedback bin
+# -----------------------------------------------------------------------------
+def plot_erp_by_feedback_bins(
+    df_model,
+    df_erp,
+    times,
+    roi_name,
+    measure,
+    n_bins=8,
+    tmin_plot=-1.4,
+    tmax_plot=0.0,
+    ylim=None,
+    invert_y=True,
+    path_out=None,
+    file_tag=None,
+):
+    group_order = ["control", "experimental"]
+    edges = make_feedback_bin_edges(df_model, n_bins)
+
+    p = df_erp.copy()
+    p["f_bin"] = pd.cut(p["f"], bins=edges, include_lowest=True)
+
+    erp_bin_rows = []
+    for (group_name, f_bin), dg in p.groupby(["group", "f_bin"], observed=True):
+        if len(dg) == 0:
+            continue
+
+        erp_stack = np.stack(dg["erp_roi"].values, axis=0)
+        erp_mean = erp_stack.mean(axis=0)
+        f_mid = (f_bin.left + f_bin.right) / 2
+
+        erp_bin_rows.append(
+            {
+                "group": group_name,
+                "f_mid": float(f_mid),
+                "erp_mean": erp_mean,
+            }
+        )
+
+    erp_bins = pd.DataFrame(erp_bin_rows)
+    if erp_bins.empty:
+        print("No ERP bins available for plotting.")
+        return
+
+    erp_bins = erp_bins.sort_values(["group", "f_mid"]).reset_index(drop=True)
+
+    time_mask = (times >= tmin_plot) & (times <= tmax_plot)
+    times_plot = times[time_mask]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
+    norm = mcolors.Normalize(
+        vmin=erp_bins["f_mid"].min(),
+        vmax=erp_bins["f_mid"].max(),
+    )
+    cmap = cm.viridis
+
+    for ax, group_name in zip(axes, group_order):
+        dg = erp_bins[erp_bins["group"] == group_name]
+
+        for _, row in dg.iterrows():
+            color = cmap(norm(row["f_mid"]))
+            erp_plot = np.asarray(row["erp_mean"])[time_mask]
+            ax.plot(times_plot, erp_plot, color=color, linewidth=2)
+
+        ax.axvline(0, color="k", linestyle="--", linewidth=1)
+        ax.axhline(0, color="k", linestyle="--", linewidth=1)
+        ax.axvspan(-0.3, 0.0, color="grey", alpha=0.12, linewidth=0)
+        ax.set_title(group_name)
+        ax.set_xlabel("Time (s)")
+        ax.set_xlim(tmin_plot, tmax_plot)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+        if invert_y:
+            ax.invert_yaxis()
+        ax.grid(True, alpha=0.3)
+
+    axes[0].set_ylabel("ERP amplitude")
+
+    add_bottom_colorbar(
+        fig=fig,
+        axes=axes,
+        norm=norm,
+        cmap=cmap,
+        label="Signed feedback (f)",
+    )
+
+    fig.suptitle(f"{roi_name}_{measure}: ROI ERP by feedback bin", y=0.95)
+    plt.subplots_adjust(bottom=0.18, top=0.85, wspace=0.25)
+
+    if path_out is not None:
+        if file_tag is None:
+            file_tag = f"{roi_name}_{measure}"
+        fig.savefig(
+            path_out / f"{file_tag}_erp_by_feedback.png",
             dpi=150,
             bbox_inches="tight",
         )
@@ -942,7 +1122,7 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# Load PSD / aperiodic data once
+# Load PSD / ERP / aperiodic data once
 # -----------------------------------------------------------------------------
 keep_cols = ["id", "block_nr", "sequence_nr", "group", "f"]
 keep_df = d_plot[keep_cols].drop_duplicates()
@@ -958,6 +1138,18 @@ if df_psd is not None:
     print("PSD rows after merge:", len(df_psd))
 else:
     print("No PSD files found.")
+
+df_erp, erp_times = load_sequence_erp_long(PATH_IN, ROI)
+
+if df_erp is not None:
+    df_erp = df_erp.merge(
+        keep_df,
+        on=["id", "block_nr", "sequence_nr", "group", "f"],
+        how="inner",
+    )
+    print("ERP rows after merge:", len(df_erp))
+else:
+    print("No ERP files found.")
 
 if {"offset", "exponent"}.issubset(df.columns):
     df_aperiodic = build_roi_aperiodic_table(df, ROI)
@@ -985,6 +1177,22 @@ if df_psd is not None and freqs is not None:
         n_bins=N_BINS,
         fmin_plot=RAW_PSD_PLOT_FMIN,
         fmax_plot=RAW_PSD_PLOT_FMAX,
+        path_out=PATH_OUT,
+        file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
+    )
+
+if df_erp is not None and erp_times is not None:
+    plot_erp_by_feedback_bins(
+        df_model=d_plot,
+        df_erp=df_erp,
+        times=erp_times,
+        roi_name=ROI_NAME,
+        measure=PLOT_MEASURE,
+        n_bins=N_BINS,
+        tmin_plot=ERP_PLOT_TMIN,
+        tmax_plot=ERP_PLOT_TMAX,
+        ylim=ERP_YLIM,
+        invert_y=ERP_INVERT_Y,
         path_out=PATH_OUT,
         file_tag=f"{ROI_NAME}_{PLOT_MEASURE}",
     )
