@@ -49,7 +49,7 @@ MEASURES = [
     "cnv_mean",
 ]
 
-N_BINS = 9
+N_BINS = 7
 GROUP_ORDER = ["control", "experimental"]
 
 # If None, uses all channels present in the dataframe.

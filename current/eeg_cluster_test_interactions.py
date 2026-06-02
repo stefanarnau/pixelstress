@@ -37,11 +37,11 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 
 FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 
-MEASURE = "alpha_flat"
+MEASURE = "theta_flat"
 
 # This script tests group difference in this within-subject slope.
 # Use "f2" to approximate the MLM group:f2 interaction.
-SLOPE_TERM = "f2"
+SLOPE_TERM = "f"
 
 N_PERM = 500
 RANDOM_SEED = 123
@@ -380,32 +380,6 @@ def plot_tmap(
     cluster_pvals=None,
     alpha=0.05,
 ):
-    """
-    Plot observed electrode-wise t-map.
-
-    If clusters and cluster_pvals are supplied, electrodes belonging to
-    cluster-corrected significant clusters are marked.
-
-    Parameters
-    ----------
-    tmap : DataFrame
-        Must contain columns: ch_name, t
-    ch_names : list
-        Channel order matching info/adacency.
-    info : mne.Info
-        EEG info object with montage.
-    path_out : Path
-        Output folder.
-    title : str
-        Figure title and file stem.
-    clusters : list of dict, optional
-        Output from find_clusters().
-    cluster_pvals : array-like, optional
-        Cluster-corrected p-values in same order as clusters.
-    alpha : float
-        Cluster-corrected alpha threshold.
-    """
-
     vals = (
         tmap.set_index("ch_name")
         .reindex(ch_names)["t"]
@@ -418,9 +392,7 @@ def plot_tmap(
 
     vlim = (-vmax, vmax)
 
-    # Build significant-cluster mask
     sig_mask = np.zeros(len(ch_names), dtype=bool)
-
     sig_cluster_labels = []
 
     if clusters is not None and cluster_pvals is not None:
@@ -431,7 +403,7 @@ def plot_tmap(
                     f"cluster {k}: p={pval:.3f}, {cl['sign']}, n={cl['size']}"
                 )
 
-    mask = sig_mask[:, np.newaxis]
+    mask = sig_mask
 
     fig, ax = plt.subplots(figsize=(5.5, 4.5))
 
@@ -442,7 +414,7 @@ def plot_tmap(
         show=False,
         cmap="RdBu_r",
         sensors=True,
-        contours=6,
+        contours=0,
         vlim=vlim,
         mask=mask,
         mask_params=dict(
@@ -479,6 +451,7 @@ def plot_tmap(
     )
 
     plt.show()
+
 
 
 # -----------------------------------------------------------------------------

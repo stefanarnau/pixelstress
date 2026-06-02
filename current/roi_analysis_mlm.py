@@ -40,9 +40,9 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 MEASURES = [
     #"mean_rt",
-    "cnv_mean",
+    #"cnv_mean",
     #"theta_flat",
-    #"alpha_flat",
+    "alpha_flat",
     #"exponent",
 ]
 
@@ -50,9 +50,9 @@ MEASURES = [
 PLOT_MEASURE = "exponent"
 
 ROIS = {
-    "frontocentral": ["Fz", "F1", "F2"],
-    "central": ["C1", "Cz", "C2"],
-    "posterior": ["POz", "PO3", "PO4"],
+    #"frontocentral": ["Fz"],
+    #"central": ["Cz", "C1", "C2", "FCz", "CPz", "CP1", "CP2"],
+    "posterior": ["POz"],
 }
 
 TERMS_EXCLUDE_FROM_SIG = [
@@ -61,7 +61,7 @@ TERMS_EXCLUDE_FROM_SIG = [
     "mean_trial_difficulty_c",
 ]
 
-N_BINS = 9
+N_BINS = 7
 
 RAW_PSD_PLOT_FMIN = 0.0
 RAW_PSD_PLOT_FMAX = 20.0
@@ -525,22 +525,7 @@ for (roi_name, measure), d in model_data_by_roi_measure.items():
     plot_feedback_curves(
         df_model=d,
         fit=fit,
-        outcome_name=f"{roi_name}_{measure}",
-        n_bins=N_BINS,
-        path_out=PATH_OUT,
-        file_tag=f"{roi_name}_{measure}",
-    )
-
-# -----------------------------------------------------------------------------
-# Make feedback/model fit plot for each successfully fitted ROI x measure
-# -----------------------------------------------------------------------------
-for (roi_name, measure), d in model_data_by_roi_measure.items():
-    fit = fit_by_roi_measure[(roi_name, measure)]
-
-    plot_feedback_curves(
-        df_model=d,
-        fit=fit,
-        outcome_name=f"{roi_name}_{measure}",
+        outcome_name=f"{measure}",
         n_bins=N_BINS,
         path_out=PATH_OUT,
         file_tag=f"{roi_name}_{measure}",

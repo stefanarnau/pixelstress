@@ -38,7 +38,7 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 
 FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 
-MEASURE = "cnv_mean"
+MEASURE = "theta_flat"
 
 # Test main effect of "f" or "f2"
 SLOPE_TERM = "f2"
@@ -388,7 +388,7 @@ def plot_tmap(
                     f"cluster {k}: p={pval:.3f}, {cl['sign']}, n={cl['size']}"
                 )
 
-    mask = sig_mask[:, np.newaxis]
+    mask = sig_mask
 
     fig, ax = plt.subplots(figsize=(5.5, 4.5))
 
@@ -399,7 +399,7 @@ def plot_tmap(
         show=False,
         cmap="RdBu_r",
         sensors=True,
-        contours=6,
+        contours=0,
         vlim=vlim,
         mask=mask,
         mask_params=dict(

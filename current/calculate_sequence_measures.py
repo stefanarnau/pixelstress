@@ -96,9 +96,9 @@ FOOOF_KWARGS = dict(
 # accounts for the exponent effect.
 BANDS = {
     "delta": (1, 3),
-    "theta": (4, 7),
+    "theta": (5, 8),
     "alpha": (8, 13),
-    "beta": (15, 30),
+    "beta": (18, 30),
 }
 
 PSD_AGG_MODE = "mean"  # "mean" or "median"

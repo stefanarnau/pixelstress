@@ -38,7 +38,7 @@ RANDOM_SEED = 123
 GROUP_ORDER = ["control", "experimental"]
 MONTAGE_NAME = "standard_1020"
 
-CLUSTER_T_THRESHOLD = 1.5
+CLUSTER_T_THRESHOLD = 1.8
 
 
 # -----------------------------------------------------------------------------
@@ -217,6 +217,8 @@ def plot_tmap(
                     f"cluster {k}: p={pval:.3f}, {cl['sign']}, n={cl['size']}"
                 )
 
+    mask = sig_mask
+
     fig, ax = plt.subplots(figsize=(5.5, 4.5))
 
     im, _ = mne.viz.plot_topomap(
@@ -226,9 +228,9 @@ def plot_tmap(
         show=False,
         cmap="RdBu_r",
         sensors=True,
-        contours=6,
+        contours=0,
         vlim=vlim,
-        mask=sig_mask[:, np.newaxis],
+        mask=mask,
         mask_params=dict(
             marker="o",
             markerfacecolor="none",
@@ -238,11 +240,10 @@ def plot_tmap(
         ),
     )
 
-    subtitle = (
-        "\n" + " | ".join(sig_cluster_labels)
-        if sig_cluster_labels
-        else "\nNo cluster-corrected significant electrodes"
-    )
+    if sig_cluster_labels:
+        subtitle = "\n" + " | ".join(sig_cluster_labels)
+    else:
+        subtitle = "\nNo cluster-corrected significant electrodes"
 
     ax.set_title(title + subtitle, fontsize=10)
 
@@ -264,6 +265,7 @@ def plot_tmap(
     )
 
     plt.show()
+
 
 
 # -----------------------------------------------------------------------------
