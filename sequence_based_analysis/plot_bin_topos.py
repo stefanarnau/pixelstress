@@ -44,14 +44,9 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 MEASURES = [
     "exponent",
-    "offset",
     "theta_flat",
     "alpha_flat",
-    "beta_flat",
     "cnv_mean",
-    "theta_raw",
-    "alpha_raw",
-    "beta_raw",
 ]
 
 N_BINS = 9
