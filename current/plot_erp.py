@@ -25,9 +25,9 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # Settings
 # -----------------------------------------------------------------------------
 ROI_NAME = "central"
-ROI = ["C1", "Cz", "C2", "FC1", "FC2", "FCz", "CPz", "Fz", "CP1", "CP3", "FC3"]
+ROI = ["Cz", "CPz", "FCz", "C1", "C2"]
 
-N_BINS = 9
+N_BINS = 7
 
 TMIN = -1.4
 TMAX = 0.0

@@ -22,14 +22,10 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-ROI_NAME = "frontal"
-ROI = ["Fz", "FCz", "FC1", "F1", "FC2", "F2"]
-
-ROI = ["Fz"]
-#ROI = ["POz", "Pz", "P1", "P2", "PO1", "PO2", "O1", "O2", "Oz"]
-
-#ROI = ["AF3","AF4","AF7","AF8","C3","C4","C5","C6","CP1","CP2","CP3","CP4","CP5","CP6","CPz","F1","F2","F3","F4","F5","F6","F7","F8","FC2","FC3","FC4","FC5","FC6","FT10","FT7","FT8","FT9","Fp1","Fp2","Fz","O1","O2","Oz","P1","P2","P3","P4","P5","P6","P7","P8","PO10","PO3","PO4","PO7","PO8","PO9","POz","Pz","T7","T8","TP10","TP7","TP8","TP9"]
-
+ROI_NAME = "posterior"
+#ROI =  ["Fz", "FCz", "FC1", "FC2", "F1", "F2"]
+#ROI = ["Cz", "CPz", "FCz", "C1", "C2"]
+ROI = ["POz", "PO3", "PO4", "O1", "Oz", "O2"]
 N_BINS = 7
 
 FMIN = 1.0

@@ -39,20 +39,20 @@ FILE_IN = PATH_IN / "all_subjects_seq_fooof_rt_channelwise_long_car.csv"
 # User settings
 # -----------------------------------------------------------------------------
 MEASURES = [
-    #"mean_rt",
-    #"cnv_mean",
-    #"theta_flat",
+    "mean_rt",
+    "cnv_mean",
+    "theta_flat",
     "alpha_flat",
-    #"exponent",
+    "exponent",
 ]
 
 # Used only for shared plots that are not re-run for every modeled measure
 PLOT_MEASURE = "exponent"
 
 ROIS = {
-    #"frontocentral": ["Fz"],
-    #"central": ["Cz", "C1", "C2", "FCz", "CPz", "CP1", "CP2"],
-    "posterior": ["POz"],
+    "frontocentral": ["Fz", "FCz", "FC1", "FC2", "F1", "F2"],
+    "central": ["Cz", "CPz", "FCz", "C1", "C2"],
+    "posterior": ["POz", "PO3", "PO4", "O1", "Oz", "O2"],
 }
 
 TERMS_EXCLUDE_FROM_SIG = [

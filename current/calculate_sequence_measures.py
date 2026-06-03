@@ -66,12 +66,12 @@ SELECT_CHANNELS = []
 
 TIME_WINDOW = (-1.4, 0.0)
 CNV_WINDOW = (-0.3, 0.0)
-MIN_TRIALS_PER_SEQUENCE = 6
+MIN_TRIALS_PER_SEQUENCE = 5
 
 # ERP/CNV branch settings.
 # These affect only the saved ERP waveforms and cnv_mean, not PSD/FOOOF.
 LOWPASS_ERP_FOR_SAVE_AND_CNV = True
-ERP_LOWPASS_HZ = 30.0
+ERP_LOWPASS_HZ = 20.0
 ERP_LOWPASS_ORDER = 4
 
 # PSD / FOOOF settings
@@ -96,7 +96,7 @@ FOOOF_KWARGS = dict(
 # accounts for the exponent effect.
 BANDS = {
     "delta": (1, 3),
-    "theta": (5, 8),
+    "theta": (4, 7),
     "alpha": (8, 13),
     "beta": (18, 30),
 }
