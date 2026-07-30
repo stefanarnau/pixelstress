@@ -546,6 +546,8 @@ def save_outputs(
 # Subject-level processing
 # -----------------------------------------------------------------------------
 def process_subject(dataset: Path):
+    
+    
     base = str(dataset).split("_cleaned")[0]
 
     df_trials = pd.read_csv(base + "_erp_trialinfo.csv")
