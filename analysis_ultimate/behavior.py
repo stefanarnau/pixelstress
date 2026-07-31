@@ -72,8 +72,9 @@ formula = (
     "+ feedback2 "
     "+ experimental:feedback "
     "+ experimental:feedback2 "
-    "+ trial_difficulty "
-    "+ half"
+    #"+ trial_difficulty "
+    "+ sequence_difficulty "
+    #"+ half"
 )
 
 model = smf.mixedlm(
@@ -126,3 +127,76 @@ fixed_effects = pd.DataFrame(
 print()
 print("Fixed effects")
 print(fixed_effects.round(4))
+
+
+# -----------------------------------------------------------------------------
+# Trial-level accuracy model (GEE)
+# -----------------------------------------------------------------------------
+import statsmodels.api as sm
+
+
+analysis_df = df.loc[
+    df["accuracy"].notna()
+].copy()
+
+formula = (
+    "accuracy ~ "
+    "experimental "
+    "+ feedback "
+    "+ feedback2 "
+    "+ experimental:feedback "
+    "+ experimental:feedback2 "
+    #"+ trial_difficulty "
+    "+ sequence_difficulty "
+    #"+ half"
+)
+
+gee = smf.gee(
+    formula=formula,
+    groups="id",
+    data=analysis_df,
+    family=sm.families.Binomial(),
+    cov_struct=sm.cov_struct.Exchangeable(),
+)
+
+result = gee.fit()
+
+# -----------------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------------
+print()
+print("=" * 70)
+print("Trial-level accuracy model (GEE)")
+print("=" * 70)
+print()
+
+print(f"Participants: {analysis_df['id'].nunique()}")
+print(f"Trials:       {len(analysis_df)}")
+print()
+
+print(result.summary())
+
+# -----------------------------------------------------------------------------
+# Fixed-effect table
+# -----------------------------------------------------------------------------
+confidence_intervals = result.conf_int()
+
+fixed_effects = pd.DataFrame(
+    {
+        "beta": result.params,
+        "se": result.bse,
+        "ci_low": confidence_intervals[0],
+        "ci_high": confidence_intervals[1],
+        "p": result.pvalues,
+        "odds_ratio": np.exp(result.params),
+        "or_ci_low": np.exp(confidence_intervals[0]),
+        "or_ci_high": np.exp(confidence_intervals[1]),
+    }
+)
+
+print()
+print("Fixed effects")
+print(fixed_effects.round(4))
+
+
+

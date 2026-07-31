@@ -247,12 +247,6 @@ for dataset in DATASETS:
         + df_trials["sequence_nr"].astype(str)
     )
 
-    # Sequence difficulty is the aggregate of trial difficulty and is not
-    # required in the trial-level dataset.
-    df_trials = df_trials.drop(
-        columns=["sequence_difficulty"]
-    )
-
     # -------------------------------------------------------------------------
     # Exclude first sequence of each block
     # -------------------------------------------------------------------------

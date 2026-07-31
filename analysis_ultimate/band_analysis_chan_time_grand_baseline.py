@@ -39,6 +39,15 @@ BASELINE_TMAX = -1.400
 
 SEED = 42
 
+# Frequency band stored in the HDF5 file: "theta", "alpha", or "beta"
+BAND = "beta"
+VALID_BANDS = {"theta", "alpha", "beta"}
+
+if BAND not in VALID_BANDS:
+    raise ValueError(
+        f"BAND must be one of {sorted(VALID_BANDS)}, got {BAND!r}."
+    )
+
 
 CLUSTER_ALPHA = 0.05              # cluster-level significance
 CLUSTER_FORMING_P = 0.025          # uncorrected voxel-wise threshold
@@ -62,7 +71,7 @@ n_participants = len(participants)
 
 
 # -----------------------------------------------------------------------------
-# Load theta-band data
+# Load selected frequency-band data
 #
 # The full analysis epoch is loaded because the common baseline is estimated
 # from the early pre-cue interval.
@@ -107,7 +116,7 @@ with h5py.File(FILE_EEG, mode="r") as h5_file:
         )
 
     # Trial × channel × time
-    theta_data = h5_file["theta"][
+    band_data = h5_file[BAND][
         :,
         :,
         time_start:time_stop,
@@ -121,9 +130,9 @@ n_times = len(times)
 # -----------------------------------------------------------------------------
 # Check trial alignment
 # -----------------------------------------------------------------------------
-if theta_data.shape[0] != len(df):
+if band_data.shape[0] != len(df):
     raise ValueError(
-        "The number of theta trials does not match the number of metadata rows."
+        "The number of selected-band trials does not match the number of metadata rows."
     )
 
 
@@ -145,7 +154,7 @@ coefficient_names = [
     "intercept",
     "feedback",
     "feedback2",
-    "+ sequence_difficulty "
+    "sequence_difficulty",
     #"trial_difficulty",
     #"half",
 ]
@@ -184,19 +193,19 @@ for participant_idx, participant in enumerate(participants):
     ]
 
     # Trial × channel × time
-    participant_theta = theta_data[
+    participant_band = band_data[
         participant_mask,
         :,
         :,
     ].astype(np.float64, copy=False)
 
-    n_trials = participant_theta.shape[0]
+    n_trials = participant_band.shape[0]
 
     # Participant-specific grand pre-cue reference:
     # one value per channel, averaged across all trials and all samples in
     # the baseline interval. This preserves trial-to-trial tonic variation
     # while removing stable between-participant differences in absolute power.
-    baseline_reference = participant_theta[
+    baseline_reference = participant_band[
         :,
         :,
         baseline_mask,
@@ -207,26 +216,26 @@ for participant_idx, participant in enumerate(participants):
         or np.any(baseline_reference <= 0)
     ):
         raise ValueError(
-            f"Invalid theta baseline reference for participant {participant}."
+            f"Invalid {BAND} baseline reference for participant {participant}."
         )
 
     if (
-        not np.all(np.isfinite(participant_theta))
-        or np.any(participant_theta <= 0)
+        not np.all(np.isfinite(participant_band))
+        or np.any(participant_band <= 0)
     ):
         raise ValueError(
-            f"Theta power contains non-finite or non-positive values for "
+            f"{BAND.capitalize()} power contains non-finite or non-positive values for "
             f"participant {participant}."
         )
 
     # dB change relative to the participant's grand pre-cue baseline.
-    participant_theta = 10.0 * np.log10(
-        participant_theta
+    participant_band = 10.0 * np.log10(
+        participant_band
         / baseline_reference[np.newaxis, :, np.newaxis]
     )
 
     # Trial × (channel × time)
-    participant_theta_flat = participant_theta.reshape(
+    participant_band_flat = participant_band.reshape(
         n_trials,
         n_channels * n_times,
     )
@@ -244,7 +253,7 @@ for participant_idx, participant in enumerate(participants):
 
     betas, _, rank, _ = np.linalg.lstsq(
         design_matrix,
-        participant_theta_flat,
+        participant_band_flat,
         rcond=None,
     )
 
@@ -273,7 +282,7 @@ for participant_idx, participant in enumerate(participants):
 
 
 # Free trial-level data before permutation testing
-del theta_data
+del band_data
 
 
 # -----------------------------------------------------------------------------
@@ -457,7 +466,7 @@ def combine_significant_clusters(
     alpha=CLUSTER_ALPHA,
 ):
     """
-    Combine all clusters below theta into one channel × time mask.
+    Combine all clusters below alpha into one channel × time mask.
     """
 
     significant_mask = np.zeros(
@@ -933,7 +942,7 @@ for effect in effect_order:
     all_topographies[effect] = topography
 
 
-# Use one common topographic scale across the five theta effects
+# Use one common topographic scale across the five selected-band effects
 coefficient_limit = max(
     np.max(
         np.abs(topography)
@@ -1049,7 +1058,7 @@ for effect_idx, effect in enumerate(
 
 
 fig.suptitle(
-    "Participant-wise theta coefficient maps (grand-baseline dB): "
+    f"Participant-wise {BAND} coefficient maps (grand-baseline dB): "
     "channel × time cluster permutation"
 )
 
