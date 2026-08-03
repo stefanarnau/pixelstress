@@ -37,10 +37,10 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 
 # Stored HDF5 measure: "erp", "theta", "alpha", or "beta"
-MEASURE = "alpha"
+MEASURE = "theta"
 
 # Channels used for the spatial average.
-CHANNELS = ["Pz"]
+CHANNELS = ["FCz"]
 
 # Time window in seconds relative to target.
 TIME_TMIN = -0.5

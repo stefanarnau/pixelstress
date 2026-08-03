@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import scipy.io
 import matplotlib.pyplot as plt
+import scipy.signal
 
 # -----------------------------------------------------------------------------
 # Paths
@@ -15,10 +16,6 @@ PATH_IN = Path("/mnt/data_dump/pixelstress/2_autocleaned2/")
 PATH_OUT = Path("/mnt/data_dump/pixelstress/3_trial_data/")
 
 DATASETS = sorted(PATH_IN.glob("*erp.set"))
-
-FILE_EEG_OUT = PATH_OUT / "trial_level_eeg.h5"
-FILE_METADATA_OUT = PATH_OUT / "trial_level_metadata.csv"
-
 
 # -----------------------------------------------------------------------------
 # Exclusions
@@ -62,8 +59,8 @@ INFO_ERP.set_montage(
 THETA_BAND = (4.0, 8.0)
 BROAD_BAND = (1.0, 30.0)
 
-GED_TMIN = -0.150
-GED_TMAX = 0.350
+GED_TMIN = 0.100
+GED_TMAX = 0.500
 
 # Shrinkage applied to the reference covariance.
 # A small fixed value is usually enough with 65 channels and many trials.
@@ -199,6 +196,220 @@ def regularize_covariance(covariance, gamma):
         (1.0 - gamma) * covariance
         + gamma * mean_eigenvalue * np.eye(n_channels)
     )
+
+def extract_theta_component_power(
+    erp_data,
+    spatial_filter,
+    sfreq,
+    theta_band=(4.0, 8.0),
+):
+    """
+    Project epoched EEG through one spatial filter and return the
+    raw component signal, theta-filtered signal, and theta power.
+
+    Parameters
+    ----------
+    erp_data : ndarray, shape (trials, channels, times)
+        Original epoched EEG.
+    spatial_filter : ndarray, shape (channels,)
+        Selected GED spatial filter.
+    sfreq : float
+        Sampling frequency.
+    theta_band : tuple of float
+        Theta passband.
+
+    Returns
+    -------
+    component_signal : ndarray, shape (trials, times)
+        Broadband spatially filtered component signal.
+    component_theta : ndarray, shape (trials, times)
+        Theta-band component signal.
+    component_theta_power : ndarray, shape (trials, times)
+        Linear analytic theta power.
+    """
+    spatial_filter = np.asarray(
+        spatial_filter,
+        dtype=np.float64,
+    ).ravel()
+
+    if erp_data.shape[1] != spatial_filter.size:
+        raise ValueError(
+            "Spatial-filter length does not match the number of channels."
+        )
+
+    # trials x time
+    component_signal = np.einsum(
+        "c,tcs->ts",
+        spatial_filter,
+        erp_data,
+        optimize=True,
+    )
+
+    # Filter the full epoch, not only the 100–500 ms interval.
+    component_theta = mne.filter.filter_data(
+        component_signal.astype(np.float64, copy=False),
+        sfreq=sfreq,
+        l_freq=theta_band[0],
+        h_freq=theta_band[1],
+        method="iir",
+        iir_params={
+            "order": 4,
+            "ftype": "butter",
+        },
+        phase="zero",
+        verbose=False,
+    )
+
+    analytic_signal = scipy.signal.hilbert(
+        component_theta,
+        axis=-1,
+    )
+
+    component_theta_power = (
+        np.abs(analytic_signal) ** 2
+    )
+
+    return {
+        "component_signal": component_signal,
+        "component_theta": component_theta,
+        "component_theta_power": component_theta_power,
+    }
+
+# -----------------------------------------------------------------------------
+# Save component
+# -----------------------------------------------------------------------------
+
+def save_theta_component(
+    component_result,
+    ged_result,
+    times,
+    trial_metadata,
+    subj_id,
+    output_dir,
+    analysis_tmin,
+    analysis_tmax,
+):
+    """
+    Save the selected theta component and trial-level summary.
+
+    Power is stored in linear units so baseline correction and log
+    transformation can be chosen later.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    times = np.asarray(times, dtype=float)
+
+    analysis_mask = (
+        (times >= analysis_tmin)
+        & (times <= analysis_tmax)
+    )
+
+    if not np.any(analysis_mask):
+        raise ValueError(
+            "Theta analysis window does not overlap the epoch."
+        )
+
+    theta_power = component_result["component_theta_power"]
+
+    trial_mean_theta_power = np.nanmean(
+        theta_power[:, analysis_mask],
+        axis=1,
+    )
+
+    trial_mean_theta_log_power = 10.0 * np.log10(
+        np.maximum(
+            trial_mean_theta_power,
+            np.finfo(float).tiny,
+        )
+    )
+
+    save_path = (
+        output_dir
+        / f"sub-{int(subj_id):03d}_theta_component.npz"
+    )
+    
+    trial_key_columns = [
+        "id",
+        "block_nr",
+        "sequence_nr",
+        "trial_nr",
+    ]
+    
+    missing_columns = [
+        column
+        for column in trial_key_columns
+        if column not in trial_metadata.columns
+    ]
+    
+    if missing_columns:
+        raise KeyError(
+            f"Missing trial-key columns: {missing_columns}"
+        )
+    
+    if len(trial_metadata) != theta_power.shape[0]:
+        raise ValueError(
+            f"Metadata contains {len(trial_metadata)} rows, "
+            f"but theta power contains {theta_power.shape[0]} trials."
+        )
+    
+    if trial_metadata.duplicated(trial_key_columns).any():
+        raise ValueError(
+            "Trial-key columns do not uniquely identify trials."
+        )
+        
+    trial_metadata = trial_metadata.reset_index(drop=True).copy()
+
+    np.savez_compressed(
+        save_path,
+
+        # Full time series
+        theta_power=theta_power.astype(np.float32),
+        times=times.astype(np.float32),
+
+        # Useful trial-level summaries
+        trial_mean_theta_power=trial_mean_theta_power.astype(
+            np.float32
+        ),
+        trial_mean_theta_log_power=trial_mean_theta_log_power.astype(
+            np.float32
+        ),
+
+        # Component definition
+        spatial_filter=ged_result["spatial_filter"].astype(
+            np.float32
+        ),
+        forward_model=ged_result["forward_model"].astype(
+            np.float32
+        ),
+        component_index=np.int32(
+            ged_result["component_index"]
+        ),
+        eigenvalue=np.float32(
+            ged_result["eigenvalue"]
+        ),
+        template_correlation=np.float32(
+            ged_result["template_correlation"]
+        ),
+
+        # Analysis definition
+        theta_band=np.asarray(
+            THETA_BAND,
+            dtype=np.float32,
+        ),
+        analysis_window=np.asarray(
+            [analysis_tmin, analysis_tmax],
+            dtype=np.float32,
+        ),
+        channel_labels=np.asarray(CHANNEL_LABELS),
+        
+        trial_id=trial_metadata["id"].to_numpy(),
+        trial_block_nr=trial_metadata["block_nr"].to_numpy(),
+        trial_sequence_nr=trial_metadata["sequence_nr"].to_numpy(),
+        trial_trial_nr=trial_metadata["trial_nr"].to_numpy(),
+    )
+
+    return save_path
 
 # -----------------------------------------------------------------------------
 # GED
@@ -585,7 +796,7 @@ for dataset in DATASETS:
         template=FCZ_TEMPLATE,
     )
     
-    fig, template_correlations, save_path = plot_ged_topographies(
+    plot_ged_topographies(
         ged_result=ged_result,
         info=INFO_ERP,
         template=FCZ_TEMPLATE,
@@ -596,3 +807,26 @@ for dataset in DATASETS:
         dpi=150,
         show=False,
     )
+    
+    # -------------------------------------------------------------------------
+    # Extract selected theta-component power
+    # -------------------------------------------------------------------------
+    theta_component = extract_theta_component_power(
+        erp_data=erp_data,
+        spatial_filter=ged_result["spatial_filter"],
+        sfreq=SFREQ,
+        theta_band=THETA_BAND,
+    )
+    
+    theta_component_path = save_theta_component(
+        component_result=theta_component,
+        ged_result=ged_result,
+        times=erp_times_sec,
+        trial_metadata=df_trials,
+        subj_id=subj_id,
+        output_dir=PATH_OUT / "ged_theta" / "components",
+        analysis_tmin=GED_TMIN,
+        analysis_tmax=GED_TMAX,
+    )
+        
+    print(f"  saved theta component: {theta_component_path}")
