@@ -13,7 +13,7 @@ import scipy.io
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-PATH_IN = Path("/mnt/data_dump/pixelstress/2_autocleaned2/")
+PATH_IN = Path("/mnt/data_dump/pixelstress/2_autocleaned3/")
 PATH_OUT = Path("/mnt/data_dump/pixelstress/3_trial_data/")
 
 DATASETS = sorted(PATH_IN.glob("*erp.set"))
@@ -31,14 +31,14 @@ IDS_TO_DROP = {1, 2, 3, 4, 5, 6, 13, 17, 25, 40, 49, 83}
 # -----------------------------------------------------------------------------
 # EEG parameters
 # -----------------------------------------------------------------------------
-SFREQ = 500
+SFREQ = 200
 
 TMIN_SAVE = -1.8
 TMAX_SAVE = 1.0
 
 # Save all datasets at 100 Hz.
 # Set to 1 to retain the original 500-Hz resolution.
-DECIM = 5
+DECIM = 2
 SFREQ_OUT = SFREQ / DECIM
 
 N_JOBS = -1

@@ -18,8 +18,8 @@ PATH_OUT.mkdir(parents=True, exist_ok=True)
 FILE_EEG = PATH_IN / "trial_level_eeg.h5"
 FILE_METADATA = PATH_IN / "trial_level_metadata.csv"
 
-MEASURE = "alpha"  # "erp", "theta", "alpha", or "beta"
-CHANNELS = ["POz", "PO7", "PO8", "Oz", "O1", "O2"]
+MEASURE = "beta"  # "erp", "theta", "alpha", or "beta"
+CHANNELS = ["C3", "C4"]
 TIME_TMIN, TIME_TMAX = -1, 0
 
 CORRECT_ONLY = True

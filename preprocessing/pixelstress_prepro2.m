@@ -81,10 +81,9 @@ subject_list = {'9_1',...
                 '96_2',...
                 '97_2',...
                 '98_2',...
-                '18_2'
-               };
+                '18_2'};
 
-subject_list = {'18_2'};
+%subject_list = {'18_2'};
 
 % Failed:
 % '18_2' something with ICA
@@ -282,44 +281,79 @@ for s = 1 : length(subject_list)
     % Add channel locations
     EEG = pop_chanedit(EEG, 'lookup', channel_location_file);
 
-    % Save original channel locations (for later interpolation, but without CPz)
-    EEG.chanlocs_to_interpolate = EEG.chanlocs;
-
-    % For VP 18, remove Fp1 & Fp2
-    %if subject_id == 18
-    %    EEG = pop_select(EEG, 'nochannel', [1, 2]);
-    %end
+    % Save channel locations before channel rejection
+    chanlocs_to_interpolate = EEG.chanlocs;
 
     % Resample data
     EEG = pop_resample(EEG, 200);
-    EEG_TF = pop_resample(EEG, 200);
 
-    % Filter
-    EEG    = pop_basicfilter(EEG,    [1 : EEG.nbchan],    'Cutoff', [0.01, 30], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary'); 
-    EEG_TF = pop_basicfilter(EEG_TF, [1 : EEG_TF.nbchan], 'Cutoff', [   1, 30], 'Design', 'butter', 'Filter', 'bandpass', 'Order', 6, 'RemoveDC', 'on', 'Boundary', 'boundary');
-        
-    % Bad channel detection (Excluding zero-line FCz)
-    [EEG, EEG.chans_rejected]       = pop_rejchan(EEG,    'elec', [1 : 64],    'threshold', 5, 'norm', 'on', 'measure', 'kurt');
-    [EEG_TF, EEG_TF.chans_rejected] = pop_rejchan(EEG_TF, 'elec', [1 : 64], 'threshold', 5, 'norm', 'on', 'measure', 'kurt');
+    % Create a copy
+    EEG_TF = EEG;
 
-    % Interpolate channels
-    EEG    = pop_interp(EEG,    EEG.chanlocs_to_interpolate,    'spherical');
-    EEG_TF = pop_interp(EEG_TF, EEG_TF.chanlocs_to_interpolate, 'spherical');
+    % ERP/CNV branch
+    EEG = pop_basicfilter(EEG, 1:EEG.nbchan, ...
+        'Cutoff', 0.01, ...
+        'Design', 'butter', ...
+        'Filter', 'highpass', ...
+        'Order', 2, ...
+        'RemoveDC', 'on', ...
+        'Boundary', 'boundary');
+
+    EEG = pop_basicfilter(EEG, 1:EEG.nbchan, ...
+        'Cutoff', 30, ...
+        'Design', 'butter', ...
+        'Filter', 'lowpass', ...
+        'Order', 4, ...
+        'RemoveDC', 'off', ...
+        'Boundary', 'boundary');
+
+    % ICA/TF branch
+    EEG_TF = pop_basicfilter(EEG_TF, 1:EEG_TF.nbchan, ...
+        'Cutoff', 1, ...
+        'Design', 'butter', ...
+        'Filter', 'highpass', ...
+        'Order', 2, ...
+        'RemoveDC', 'on', ...
+        'Boundary', 'boundary');
+
+    EEG_TF = pop_basicfilter(EEG_TF, 1:EEG_TF.nbchan, ...
+        'Cutoff', 30, ...
+        'Design', 'butter', ...
+        'Filter', 'lowpass', ...
+        'Order', 4, ...
+        'RemoveDC', 'off', ...
+        'Boundary', 'boundary');
+
+    % Detect bad channels on ICA/TF copy
+    [~, chans_rejected] = pop_rejchan( ...
+        EEG_TF, ...
+        'elec', 1:64, ...
+        'threshold', 5, ...
+        'norm', 'on', ...
+        'measure', 'kurt');
+
+    % Remove identical channels from both datasets
+    EEG    = pop_select(EEG,    'nochannel', chans_rejected);
+    EEG_TF = pop_select(EEG_TF, 'nochannel', chans_rejected);
+
+    % Interpolate identical channels in both datasets
+    EEG    = pop_interp(EEG,    chanlocs_to_interpolate, 'spherical');
+    EEG_TF = pop_interp(EEG_TF, chanlocs_to_interpolate, 'spherical');
 
     % Reref common average
     EEG    = pop_reref(EEG,    []);
     EEG_TF = pop_reref(EEG_TF, []);
 
-    % Determine rank of data
-    dataRank = sum(eig(cov(double(EEG_TF.data'))) > 1e-6);
+    % Expected ICA rank
+    dataRank = 64 - numel(chans_rejected);
 
     % Epoch EEG data
     [EEG, idx_to_keep] = pop_epoch(EEG, {'X'}, [-2.5, 1.2], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'], 'epochinfo', 'yes');
     EEG.trialinfo =  EEG.trialinfo(idx_to_keep, :);
-    EEG = pop_rmbase(EEG, [-1600, -1400]);
+    
     [EEG_TF, idx_to_keep] = pop_epoch(EEG_TF, {'X'}, [-2.5, 1.8], 'newname', ['vp_', num2str(trialinfo(1, 2).id), '_epoched'],  'epochinfo', 'yes');
     EEG_TF.trialinfo =  EEG_TF.trialinfo(idx_to_keep, :);
-    EEG_TF = pop_rmbase(EEG_TF, [-1600, -1400]);
+
 
     % Autoreject trials in tf-set
     [EEG_TF, EEG_TF.rejected_epochs] = pop_autorej(EEG_TF, 'nogui', 'on');
@@ -330,10 +364,13 @@ for s = 1 : length(subject_list)
     % Runica & ICLabel
     EEG_TF = pop_runica(EEG_TF, 'extended', 1, 'interrupt', 'on', 'PCA', dataRank);
     EEG_TF = iclabel(EEG_TF);
-
+    
     % Find nobrainer
-    EEG_TF.nobrainer = find(EEG_TF.etc.ic_classification.ICLabel.classifications(:, 1) < 0.3 | EEG_TF.etc.ic_classification.ICLabel.classifications(:, 3) > 0.3);
-
+    icprob = EEG_TF.etc.ic_classification.ICLabel.classifications;
+    EEG_TF.nobrainer = find( ...
+        icprob(:, 2) >= 0.70 | ... % Muscle
+        icprob(:, 3) >= 0.70);     % Eye
+        
     % Copy ICs to erpset
     EEG = pop_editset(EEG, 'icachansind', 'EEG_TF.icachansind', 'icaweights', 'EEG_TF.icaweights', 'icasphere', 'EEG_TF.icasphere');
     EEG.etc = EEG_TF.etc;
@@ -350,6 +387,9 @@ for s = 1 : length(subject_list)
     % trial rejection for erp-set
     [EEG, EEG.rejected_epochs] = pop_autorej(EEG, 'nogui', 'on');
     EEG.trialinfo(EEG.rejected_epochs, :) = [];
+
+    % Subtract baseline
+    EEG = pop_rmbase(EEG, [-1800, -1400]);
 
     % Write trialinfo as csv
     writetable(EEG.trialinfo, [PATH_AUTOCLEANED, 'vp_', num2str(trialinfo(1, 2).id), '_erp_trialinfo.csv']);

@@ -19,7 +19,7 @@ FILE_EEG = PATH_IN / "trial_level_eeg.h5"
 FILE_METADATA = PATH_IN / "trial_level_metadata.csv"
 
 MEASURE = "theta"  # "erp", "theta", "alpha", or "beta"
-CHANNELS = ["FCz", "Fz", "FC1", "FC2", "Cz"]
+CHANNELS = ["FCz", "FC1", "FC2", "Cz", "C1", "C2"]
 TIME_TMIN, TIME_TMAX = 0.15, 0.35
 
 CORRECT_ONLY = True
