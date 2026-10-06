@@ -424,7 +424,7 @@ model = smf.mixedlm(
     formula=formula,
     data=model_df,
     groups=model_df["id"],
-    re_formula="1 + feedback_c",
+    re_formula="1",
     vc_formula=vc_formula,
 )
 
@@ -433,6 +433,96 @@ result = model.fit(
     method=OPTIMIZER,
     maxiter=MAXITER,
 )
+
+# ------------------------------------------------------------
+# Group-specific feedback effects
+# ------------------------------------------------------------
+
+def linear_combination_test(result, weights, label):
+    """
+    Wald test for a linear combination of fixed-effect coefficients.
+    weights: dict {coefficient_name: weight}
+    """
+    fixed_names = list(result.fe_params.index)
+
+    contrast = np.array([
+        weights.get(name, 0.0)
+        for name in fixed_names
+    ])
+
+    beta = result.fe_params.loc[fixed_names].to_numpy()
+    cov = result.cov_params().loc[fixed_names, fixed_names].to_numpy()
+
+    estimate = contrast @ beta
+    variance = contrast @ cov @ contrast
+    se = np.sqrt(variance)
+
+    z = estimate / se
+
+    from scipy.stats import norm
+    p = 2 * norm.sf(abs(z))
+
+    ci_low = estimate - 1.96 * se
+    ci_high = estimate + 1.96 * se
+
+    return {
+        "effect": label,
+        "estimate": estimate,
+        "se": se,
+        "z": z,
+        "p": p,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+    }
+
+
+simple_effects = []
+
+# Control: coefficients are directly parameterized
+simple_effects.append(
+    linear_combination_test(
+        result,
+        {"feedback_c": 1},
+        "Control: linear feedback",
+    )
+)
+
+simple_effects.append(
+    linear_combination_test(
+        result,
+        {"feedback2_c": 1},
+        "Control: quadratic feedback",
+    )
+)
+
+# Experimental: main effect + interaction
+simple_effects.append(
+    linear_combination_test(
+        result,
+        {
+            "feedback_c": 1,
+            "experimental:feedback_c": 1,
+        },
+        "Experimental: linear feedback",
+    )
+)
+
+simple_effects.append(
+    linear_combination_test(
+        result,
+        {
+            "feedback2_c": 1,
+            "experimental:feedback2_c": 1,
+        },
+        "Experimental: quadratic feedback",
+    )
+)
+
+simple_effects_df = pd.DataFrame(simple_effects)
+
+print("\nGroup-specific feedback effects")
+print("--------------------------------")
+print(simple_effects_df.to_string(index=False))
 
 
 # Output
