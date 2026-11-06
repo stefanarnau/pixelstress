@@ -39,7 +39,7 @@ FILE_METADATA = PATH_IN / "trial_level_metadata.csv"
 OPTIMIZER = "bfgs"
 MAXITER = 5000
 
-N_BINS = 5
+N_BINS = 7
 BIN_LABELS = None
 
 PREDICTION_POINTS = 200
@@ -651,99 +651,83 @@ group_labels = [GROUP_TITLES[group] for group in GROUP_ORDER]
 DODGE_WIDTH = 0.12
 bin_offsets = np.linspace(-DODGE_WIDTH, DODGE_WIDTH, N_BINS)
 
-# -----------------------------------------------------------------------------
-# Descriptive RT interaction plot: difficulty-adjusted RT
-# -----------------------------------------------------------------------------
-for bin_index, bin_label in enumerate(feedback_bin_labels):
-    means, cis = [], []
-    for group in GROUP_ORDER:
-        row = rt_bin_summary.loc[
-            (rt_bin_summary["group"] == group)
-            & (rt_bin_summary["feedback_bin"] == bin_label)
-        ]
-        if len(row) != 1:
-            means.append(np.nan)
-            cis.append(np.nan)
-        else:
-            means.append(float(row["mean"].iloc[0]))
-            cis.append(critical * float(row["sem"].iloc[0]))
 
-    x_positions = group_positions + bin_offsets[bin_index]
+# ---------------------------------------------------------
+# Descriptive feedback plots: feedback on the x-axis
+# ---------------------------------------------------------
 
-    rt_bin_axis.errorbar(
-        x_positions,
-        np.asarray(means),
-        yerr=np.asarray(cis),
-        marker="o",
-        markersize=7,
-        linewidth=1.8,
-        capsize=3,
-        color=bin_colors[bin_index],
-        label=bin_label,
-    )
+group_colors = {
+    "control": "C0",
+    "experimental": "C1",
+}
 
-rt_bin_axis.set_xticks(group_positions)
-rt_bin_axis.set_xticklabels(group_labels)
-rt_bin_axis.set_xlabel("Group")
-rt_bin_axis.set_ylabel("Difficulty-adjusted RT (ms)")
-rt_bin_axis.set_title("RT: descriptive feedback bins")
+group_line_styles = {
+    "control": "--",
+    "experimental": "-",
+}
 
-# -----------------------------------------------------------------------------
-# Descriptive accuracy interaction plot: raw accuracy
-# -----------------------------------------------------------------------------
+# Midpoints of the common feedback bins
+bin_centers = (
+    feedback_bin_edges[:-1] + feedback_bin_edges[1:]
+) / 2
+
 accuracy_plot_lows = []
 accuracy_plot_highs = []
 
-for bin_index, bin_label in enumerate(feedback_bin_labels):
-    means, cis = [], []
-    for group in GROUP_ORDER:
-        row = accuracy_bin_summary.loc[
-            (accuracy_bin_summary["group"] == group)
-            & (accuracy_bin_summary["feedback_bin"] == bin_label)
-        ]
-        if len(row) != 1:
-            means.append(np.nan)
-            cis.append(np.nan)
-        else:
-            means.append(float(row["mean"].iloc[0]))
-            cis.append(critical * float(row["sem"].iloc[0]))
+for group in GROUP_ORDER:
+    for axis, summary in [
+        (rt_bin_axis, rt_bin_summary),
+        (accuracy_bin_axis, accuracy_bin_summary),
+    ]:
+        subset = (
+            summary.loc[summary["group"] == group]
+            .set_index("feedback_bin")
+            .reindex(feedback_bin_labels)
+        )
 
-    means = np.asarray(means, dtype=float)
-    cis = np.asarray(cis, dtype=float)
-    x_positions = group_positions + bin_offsets[bin_index]
+        means = subset["mean"].to_numpy(dtype=float)
+        sems = subset["sem"].to_numpy(dtype=float)
+        cis = critical * sems
 
-    accuracy_plot_lows.extend((means - cis)[np.isfinite(means - cis)])
-    accuracy_plot_highs.extend((means + cis)[np.isfinite(means + cis)])
+        axis.errorbar(
+            bin_centers,
+            means,
+            yerr=cis,
+            marker="o",
+            markersize=6,
+            linewidth=1.8,
+            capsize=3,
+            color=group_colors[group],
+            linestyle=group_line_styles[group],
+            label=GROUP_TITLES[group],
+        )
 
-    accuracy_bin_axis.errorbar(
-        x_positions,
-        means,
-        yerr=cis,
-        marker="o",
-        markersize=7,
-        linewidth=1.8,
-        capsize=3,
-        color=bin_colors[bin_index],
-        label=bin_label,
-    )
+        if axis is accuracy_bin_axis:
+            accuracy_plot_lows.extend(
+                (means - cis)[np.isfinite(means - cis)]
+            )
+            accuracy_plot_highs.extend(
+                (means + cis)[np.isfinite(means + cis)]
+            )
 
-accuracy_bin_axis.set_xticks(group_positions)
-accuracy_bin_axis.set_xticklabels(group_labels)
-accuracy_bin_axis.set_xlabel("Group")
-accuracy_bin_axis.set_ylabel("Proportion correct")
-accuracy_bin_axis.set_title("Accuracy: descriptive feedback bins")
-
-# Shared feedback-bin legend
-handles, labels = rt_bin_axis.get_legend_handles_labels()
-figure.legend(
-    handles=handles,
-    labels=labels,
-    title="Feedback bin",
-    loc="upper center",
-    bbox_to_anchor=(0.5, 0.925),
-    ncol=N_BINS,
-    frameon=False,
+rt_bin_axis.set(
+    xlabel="Feedback",
+    ylabel="Difficulty-adjusted RT (ms)",
+    title="RT: descriptive feedback bins",
 )
+
+accuracy_bin_axis.set(
+    xlabel="Feedback",
+    ylabel="Proportion correct",
+    title="Accuracy: descriptive feedback bins",
+)
+
+for axis in (rt_bin_axis, accuracy_bin_axis):
+    axis.set_xlim(-1, 1)
+    axis.axvline(0, color="0.6", linewidth=0.8,
+                 linestyle=":")
+    axis.legend(frameon=False)
+
 
 # -----------------------------------------------------------------------------
 # Continuous model predictions -- inferential models unchanged
@@ -864,3 +848,4 @@ plt.close(figure)
 print("\nSaved:")
 for saved_file in saved_files:
     print(saved_file)
+
